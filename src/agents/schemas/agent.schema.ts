@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
+import { Project } from '../../projects/schemas/project.schema';
 
 export type AgentDocument = HydratedDocument<Agent>;
 
@@ -13,6 +14,9 @@ export class Agent {
 
   @Prop({ type: Object, required: true })
   personalityMatrix: Record<string, any>;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Project', required: true })
+  project: Project;
 }
 
 export const AgentSchema = SchemaFactory.createForClass(Agent);

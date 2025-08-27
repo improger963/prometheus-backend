@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema } from 'mongoose';
+import { User } from '../../auth/schemas/user.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
 
@@ -10,6 +11,9 @@ export class Project {
 
   @Prop({ required: true, trim: true })
   gitRepositoryURL: string;
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
+  user: User;
 }
 
 export const ProjectSchema = SchemaFactory.createForClass(Project);

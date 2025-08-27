@@ -7,30 +7,29 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { User, UserSchema } from './schemas/user.schema';
+import { JwtStrategy } from './jwt.strategy'; // <-- 1. Импортируем стратегию
 
 @Module({
   imports: [
-    // Подключаем Passport.js со стратегией 'jwt' по умолчанию
     PassportModule.register({ defaultStrategy: 'jwt' }),
 
-    // Асинхронно настраиваем JWT модуль, чтобы он мог прочитать секрет из .env
     JwtModule.registerAsync({
-      imports: [ConfigModule], // Импортируем ConfigModule, чтобы получить доступ к ConfigService
+      imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         return {
-          secret: config.get<string>('JWT_SECRET'), // Получаем секретный ключ
+          secret: config.getOrThrow<string>('JWT_SECRET'), // <-- Улучшение для консистентности
           signOptions: {
-            expiresIn: '1d', // Устанавливаем срок жизни токена
+            expiresIn: '1d',
           },
         };
       },
     }),
 
-    // Подключаем Mongoose и регистрируем схему User
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
   ],
-  controllers: [AuthController], // Регистрируем наш контроллер
-  providers: [AuthService], // Регистрируем наш сервис
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy], // <-- 2. Добавляем стратегию в провайдеры
+  exports: [JwtStrategy, PassportModule], // <-- 3. Экспортируем для использования в других модулях
 })
 export class AuthModule {}
