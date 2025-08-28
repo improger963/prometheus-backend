@@ -1,98 +1,263 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Проект Прометей - Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+## О Проекте
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Это бэкенд-часть **"Проекта Прометей"**, созданная для управления AI-агентами, их задачами и средами выполнения. Система построена на базе NestJS и обеспечивает надежное, безопасное и масштабируемое API.
 
-## Description
+## Ключевые Возможности
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- 🔐 **Аутентификация на JWT**: Безопасная система регистрации и входа для пользователей
+- 📁 **Управление Проектами**: Полный CRUD для создания и управления проектами
+- 🤖 **Управление Агентами**: Вложенный CRUD для создания и управления AI-агентами в рамках проектов
+- ⚙️ **Ядро Оркестрации**: Низкоуровневый сервис для управления Docker-контейнерами
+- 🔔 **Real-time Уведомления**: WebSocket-шлюз для отправки событий в реальном времени
+- ✅ **Полное Тестовое Покрытие API**: Надежность кода подтверждена интеграционными тестами
 
-## Project setup
+## Технологический Стек
 
-```bash
-$ npm install
-```
+| Компонент          | Технология                             |
+| ------------------ | -------------------------------------- |
+| **Фреймворк**      | NestJS (Node.js)                       |
+| **Язык**           | TypeScript                             |
+| **База Данных**    | MongoDB с Mongoose                     |
+| **Аутентификация** | Passport.js, JWT, bcrypt               |
+| **Оркестрация**    | Dockerode                              |
+| **WebSockets**     | Socket.IO                              |
+| **Тестирование**   | Jest, Supertest, MongoDB-Memory-Server |
 
-## Compile and run the project
+## Начало Работы
+
+### 1. Клонирование репозитория
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone <URL_ВАШЕГО_РЕПОЗИТОРИЯ>
+cd prometheus-backend
 ```
 
-## Run tests
+### 2. Установка зависимостей
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm install
 ```
 
-## Deployment
+### 3. Настройка переменных окружения
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Создайте файл `.env` в корневой директории проекта и скопируйте в него содержимое из `.env.example` (если он есть) или используйте этот шаблон:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+```env
+# Строка подключения к вашей базе данных MongoDB
+DATABASE_URL=mongodb://localhost:27017/prometheus
+
+# Секретный ключ для подписи JWT-токенов (замените на длинную, случайную строку)
+JWT_SECRET=YOUR_SUPER_SECRET_KEY_REPLACE_ME
+```
+
+## Запуск Приложения
+
+### В режиме разработки (с hot-reload)
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run start:dev
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Приложение будет доступно по адресу: **http://localhost:3000**
 
-## Resources
+## Запуск Тестов
 
-Check out a few resources that may come in handy when working with NestJS:
+Для запуска всех интеграционных (e2e) тестов выполните:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm run test:e2e
+```
 
-## Support
+---
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Документация API
 
-## Stay in touch
+> **Базовый URL:** `http://localhost:3000`
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### Модуль Auth
 
-## License
+#### `POST /auth/signup` - Регистрация нового пользователя
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+**Описание:** Создает нового пользователя в системе.  
+**Аутентификация:** Не требуется.
+
+**Тело Запроса** (`application/json`):
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `email` | string | **Обязательное.** Уникальный email пользователя |
+| `password` | string | **Обязательное.** Пароль (мин. 8 символов) |
+
+**Успешный Ответ** (`201 Created`):
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Ответы с Ошибками:**
+
+- `409 Conflict`: Пользователь с таким email уже существует
+- `400 Bad Request`: Данные не прошли валидацию (некорректный email, короткий пароль)
+
+---
+
+#### `POST /auth/login` - Вход в систему
+
+**Описание:** Аутентифицирует пользователя и возвращает JWT-токен.  
+**Аутентификация:** Не требуется.
+
+**Тело Запроса** (`application/json`):
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `email` | string | **Обязательное.** Email пользователя |
+| `password` | string | **Обязательное.** Пароль пользователя |
+
+**Успешный Ответ** (`200 OK`):
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Ответы с Ошибками:**
+
+- `401 Unauthorized`: Неверный email или пароль
+
+---
+
+### Модуль Projects
+
+> **Аутентификация:** Для всех эндпоинтов этого модуля требуется **Bearer Token**.
+
+#### `POST /projects` - Создание нового проекта
+
+**Описание:** Создает новый проект, привязанный к текущему пользователю.
+
+**Тело Запроса** (`application/json`):
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `name` | string | **Обязательное.** Название проекта |
+| `gitRepositoryURL` | string | **Обязательное.** URL git-репозитория |
+
+**Успешный Ответ** (`201 Created`):
+
+```json
+{
+  "name": "Мой Первый Проект",
+  "gitRepositoryURL": "https://github.com/user/repo.git",
+  "user": "60c72b2f9b1d8c001f8e4d3b",
+  "_id": "60c72b3a9b1d8c001f8e4d3c",
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+---
+
+#### `GET /projects` - Получение списка проектов пользователя
+
+**Описание:** Возвращает массив всех проектов, принадлежащих текущему пользователю.
+
+**Успешный Ответ** (`200 OK`):
+
+```json
+[
+  {
+    "_id": "...",
+    "name": "Проект 1",
+    "..."
+  },
+  {
+    "_id": "...",
+    "name": "Проект 2",
+    "..."
+  }
+]
+```
+
+---
+
+#### `GET /projects/:id` - Получение одного проекта
+
+**Описание:** Возвращает один проект по его ID.
+
+**Ответы с Ошибками:**
+
+- `404 Not Found`: Проект не найден или не принадлежит пользователю
+
+---
+
+#### `PATCH /projects/:id` - Обновление проекта
+
+**Описание:** Обновляет данные проекта.
+
+**Тело Запроса** (`application/json`): Можно передавать любые поля из DTO (`name`, `gitRepositoryURL`).
+
+---
+
+#### `DELETE /projects/:id` - Удаление проекта
+
+**Описание:** Удаляет проект по его ID.
+
+---
+
+### Модуль Agents
+
+> **Аутентификация:** Для всех эндпоинтов этого модуля требуется **Bearer Token**.
+
+#### `POST /projects/:projectId/agents` - Создание агента в проекте
+
+**Описание:** Создает нового агента в рамках проекта с ID `:projectId`.
+
+**Тело Запроса** (`application/json`):
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `name` | string | **Обязательное.** Имя агента |
+| `role` | string | **Обязательное.** Роль или специализация агента |
+| `personalityMatrix` | object | **Обязательное.** Объект с параметрами личности |
+
+**Успешный Ответ** (`201 Created`):
+
+```json
+{
+  "name": "Агент-Разработчик",
+  "role": "Написание кода",
+  "personalityMatrix": {
+    "logic": 1.0
+  },
+  "project": "60c72b3a9b1d8c001f8e4d3c",
+  "_id": "60c72d1f9b1d8c001f8e4d3e"
+}
+```
+
+**Ответы с Ошибками:**
+
+- `404 Not Found`: Проект с `:projectId` не найден или не принадлежит пользователю
+
+---
+
+#### `GET /projects/:projectId/agents` - Получение списка агентов в проекте
+
+**Описание:** Возвращает всех агентов для указанного проекта.
+
+---
+
+#### `GET /projects/:projectId/agents/:agentId` - Получение одного агента
+
+**Описание:** Возвращает одного агента по его `agentId` в рамках проекта.
+
+---
+
+#### `PATCH /projects/:projectId/agents/:agentId` - Обновление агента
+
+**Описание:** Обновляет данные агента в рамках проекта.
+
+---
+
+#### `DELETE /projects/:projectId/agents/:agentId` - Удаление агента
+
+**Описание:** Удаляет агента из проекта.
