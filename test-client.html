@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <title>WebSocket Test Client</title>
+  </head>
+  <body>
+    <h1>WebSocket Test Client</h1>
+    <p>Откройте консоль разработчика (F12) для просмотра логов.</p>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+      // Подключаемся к нашему NestJS серверу (по умолчанию он на порту 3000)
+      const socket = io('http://localhost:3000');
+
+      socket.on('connect', () => {
+        console.log(
+          '%cУспешно подключен к WebSocket серверу!',
+          'color: green; font-weight: bold;',
+        );
+        console.log('ID сокета:', socket.id);
+      });
+
+      socket.on('disconnect', () => {
+        console.log('%cОтключен от WebSocket сервера.', 'color: red;');
+      });
+
+      // Слушаем подтверждение о входе в комнату
+      socket.on('joinedRoom', (data) => {
+        console.log('%cСервер подтвердил:', 'color: blue;', data);
+      });
+
+      // Слушаем наше тестовое событие 'agentLog'
+      socket.on('agentLog', (data) => {
+        console.log(
+          '%cПОЛУЧЕНО СОБЫТИЕ "agentLog":',
+          'color: purple; font-weight: bold;',
+          data,
+        );
+      });
+
+      // Функция, которую мы будем вызывать из консоли для входа в комнату
+      function joinRoom(projectId) {
+        console.log(
+          `Отправляем запрос на присоединение к комнате проекта: ${projectId}`,
+        );
+        socket.emit('joinProjectRoom', projectId);
+      }
+    </script>
+  </body>
+</html>
