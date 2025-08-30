@@ -10,7 +10,6 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { DockerManagerService } from './docker-manager.service';
 import { EventsGateway } from './events.gateway';
 import { Task, TaskDocument, TaskStatus } from '../tasks/schemas/task.schema';
-import { UserDocument } from '../auth/schemas/user.schema';
 import { LlmManagerService } from './llm-manager.service';
 import { AgentDocument } from 'src/agents/schemas/agent.schema';
 import { ProjectDocument } from 'src/projects/schemas/project.schema';
@@ -27,16 +26,14 @@ export class OrchestrationService {
   ) {}
 
   @OnEvent('task.created')
-  async handleTaskCreated(payload: { taskId: string; user: UserDocument }) {
+  async handleTaskCreated(payload: { taskId: string }) {
     this.logger.log(
       `Перехвачено событие 'task.created' для задачи: ${payload.taskId}`,
     );
     this.startTaskExecution(payload.taskId);
   }
 
-  // Убираем user, т.к. проверка прав уже прошла в TasksService при создании
   async startTaskExecution(taskId: string): Promise<void> {
-    // --- ГЛАВНОЕ ИСПРАВЛЕНИЕ: Убеждаемся, что populate использует правильные имена полей из схемы ---
     const task = await this.taskModel
       .findById(taskId)
       .populate<{
@@ -62,7 +59,6 @@ export class OrchestrationService {
     const { project, agent } = task;
     const projectId = project._id.toString();
 
-    // --- УЛУЧШЕННОЕ ЛОГИРОВАНИЕ: Прозрачность системы ---
     this.logger.log(
       `[ОРКЕСТРАТОР] Запускаю задачу: "${task.title}" в проекте "${project.name}" для агента "${agent.name}"`,
     );
@@ -74,7 +70,6 @@ export class OrchestrationService {
 
     let containerId: string | null = null;
 
-    // --- БЕЗОПАСНЫЙ ЦИКЛ ---
     try {
       await this.updateTaskStatus(taskId, projectId, TaskStatus.IN_PROGRESS);
       this._logToProject(projectId, `[Docker]: Создаю изолированную среду...`);
@@ -121,7 +116,6 @@ export class OrchestrationService {
       );
       await this.updateTaskStatus(taskId, projectId, TaskStatus.COMPLETED);
     } catch (error) {
-      // Улучшенный вывод ошибки
       this.logger.error(
         `КРИТИЧЕСКАЯ ОШИБКА при выполнении задачи ${taskId}:`,
         error,
@@ -158,7 +152,6 @@ export class OrchestrationService {
     С чего ты начнешь? Дай мне первую команду.
     `;
   }
-  // --- Вспомогательные методы ---
 
   private async executeAndLogCommand(
     containerId: string,
