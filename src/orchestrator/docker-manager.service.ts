@@ -1,4 +1,8 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 // ИСПРАВЛЕННЫЙ ИМПОРТ:
 import Docker, { Container } from 'dockerode';
 import { Readable } from 'stream';
@@ -34,7 +38,9 @@ export class DockerManagerService {
       return container.id;
     } catch (error) {
       console.error('Ошибка при создании контейнера:', error);
-      throw new InternalServerErrorException('Не удалось создать Docker-контейнер.');
+      throw new InternalServerErrorException(
+        'Не удалось создать Docker-контейнер.',
+      );
     }
   }
 
@@ -44,7 +50,10 @@ export class DockerManagerService {
    * @param command - Массив строк команды, например, ['ls', '-la'].
    * @returns Результат выполнения команды (stdout).
    */
-  async executeCommand(containerId: string, command: string[]): Promise<string> {
+  async executeCommand(
+    containerId: string,
+    command: string[],
+  ): Promise<string> {
     const container = await this.getContainer(containerId);
 
     const exec = await container.exec({
@@ -54,12 +63,12 @@ export class DockerManagerService {
     });
 
     const stream = await exec.start({ Tty: false, hijack: true });
-    
+
     // В dockerode v3+ стандартный demuxStream больше не требуется в том виде, как раньше.
     // Простой сбор данных из потока работает для большинства случаев.
     return new Promise((resolve, reject) => {
       let output = '';
-      stream.on('data', (chunk) => output += chunk.toString('utf8'));
+      stream.on('data', (chunk) => (output += chunk.toString('utf8')));
       stream.on('end', () => resolve(output));
       stream.on('error', (err) => reject(err));
     });
@@ -76,7 +85,9 @@ export class DockerManagerService {
       await container.remove({ force: true });
     } catch (error) {
       if (error.statusCode !== 304 && error.statusCode !== 404) {
-        throw new InternalServerErrorException(`Не удалось остановить или удалить контейнер: ${error.message}`);
+        throw new InternalServerErrorException(
+          `Не удалось остановить или удалить контейнер: ${error.message}`,
+        );
       }
       // Если контейнер уже был остановлен (304) или не найден (404), просто пытаемся удалить
       if (error.statusCode !== 404) {
@@ -94,7 +105,9 @@ export class DockerManagerService {
       return container;
     } catch (error) {
       if (error.statusCode === 404) {
-        throw new NotFoundException(`Контейнер с ID "${containerId}" не найден.`);
+        throw new NotFoundException(
+          `Контейнер с ID "${containerId}" не найден.`,
+        );
       }
       throw error;
     }
@@ -104,7 +117,9 @@ export class DockerManagerService {
     return new Promise((resolve, reject) => {
       this.docker.pull(imageName, (err: any, stream: any) => {
         if (err) return reject(err);
-        this.docker.modem.followProgress(stream, (err) => (err ? reject(err) : resolve()));
+        this.docker.modem.followProgress(stream, (err) =>
+          err ? reject(err) : resolve(),
+        );
       });
     });
   }

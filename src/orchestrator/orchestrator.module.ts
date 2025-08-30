@@ -5,11 +5,11 @@ import { EventsGateway } from './events.gateway'; // <-- 1. Импортируе
 @Module({
   providers: [
     DockerManagerService,
-    EventsGateway // <-- 2. Регистрируем EventsGateway как провайдер
+    EventsGateway, // <-- 2. Регистрируем EventsGateway как провайдер
   ],
   exports: [
     DockerManagerService,
-    EventsGateway // <-- 3. Экспортируем его для использования в других модулях
+    EventsGateway, // <-- 3. Экспортируем его для использования в других модулях
   ],
 })
 export class OrchestratorModule {}

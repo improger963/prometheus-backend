@@ -28,11 +28,16 @@ describe('AgentsController (e2e)', () => {
     // Этап 1: Создаем пользователя
     const user = { email: 'agent-tester@example.com', password: 'password123' };
     await request(app.getHttpServer()).post('/auth/signup').send(user);
-    const loginResponse = await request(app.getHttpServer()).post('/auth/login').send(user);
+    const loginResponse = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(user);
     jwtToken = loginResponse.body.token;
 
     // Этап 2: Создаем проект, в котором будем работать
-    const projectDto = { name: 'Проект для Тестирования Агентов', gitRepositoryURL: 'https://github.com/test/agents.git' };
+    const projectDto = {
+      name: 'Проект для Тестирования Агентов',
+      gitRepositoryURL: 'https://github.com/test/agents.git',
+    };
     const projectResponse = await request(app.getHttpServer())
       .post('/projects')
       .auth(jwtToken, { type: 'bearer' })
@@ -60,7 +65,7 @@ describe('AgentsController (e2e)', () => {
         .send(agentDto)
         .expect(401);
     });
-    
+
     it('POST /.../agents - должен вернуть 404 (Not Found), если проект не принадлежит пользователю', () => {
       const fakeProjectId = new Types.ObjectId().toHexString(); // Генерируем валидный, но несуществующий ID
       return request(app.getHttpServer())
@@ -84,38 +89,38 @@ describe('AgentsController (e2e)', () => {
     });
 
     it('GET /.../agents - должен вернуть список агентов в проекте', () => {
-        return request(app.getHttpServer())
-          .get(`/projects/${projectId}/agents`)
-          .auth(jwtToken, { type: 'bearer' })
-          .expect(200)
-          .then((res) => {
-            expect(res.body).toBeInstanceOf(Array);
-            expect(res.body[0]._id).toEqual(agentId);
-          });
-      });
+      return request(app.getHttpServer())
+        .get(`/projects/${projectId}/agents`)
+        .auth(jwtToken, { type: 'bearer' })
+        .expect(200)
+        .then((res) => {
+          expect(res.body).toBeInstanceOf(Array);
+          expect(res.body[0]._id).toEqual(agentId);
+        });
+    });
 
     it('GET /.../agents/:agentId - должен вернуть конкретного агента', () => {
-        return request(app.getHttpServer())
-          .get(`/projects/${projectId}/agents/${agentId}`)
-          .auth(jwtToken, { type: 'bearer' })
-          .expect(200)
-          .then((res) => {
-            expect(res.body._id).toEqual(agentId);
-          });
-      });
+      return request(app.getHttpServer())
+        .get(`/projects/${projectId}/agents/${agentId}`)
+        .auth(jwtToken, { type: 'bearer' })
+        .expect(200)
+        .then((res) => {
+          expect(res.body._id).toEqual(agentId);
+        });
+    });
 
     it('DELETE /.../agents/:agentId - должен удалить агента', () => {
-        return request(app.getHttpServer())
-          .delete(`/projects/${projectId}/agents/${agentId}`)
-          .auth(jwtToken, { type: 'bearer' })
-          .expect(200);
-      });
+      return request(app.getHttpServer())
+        .delete(`/projects/${projectId}/agents/${agentId}`)
+        .auth(jwtToken, { type: 'bearer' })
+        .expect(200);
+    });
 
     it('GET /.../agents/:agentId - должен вернуть 404 (Not Found) после удаления агента', () => {
-        return request(app.getHttpServer())
-          .get(`/projects/${projectId}/agents/${agentId}`)
-          .auth(jwtToken, { type: 'bearer' })
-          .expect(404);
-      });
+      return request(app.getHttpServer())
+        .get(`/projects/${projectId}/agents/${agentId}`)
+        .auth(jwtToken, { type: 'bearer' })
+        .expect(404);
+    });
   });
 });

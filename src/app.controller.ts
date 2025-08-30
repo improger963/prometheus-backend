@@ -18,10 +18,16 @@ export class AppController {
   @Get('test-ws/:projectId')
   testWebSocket(@Param('projectId') projectId: string) {
     const event = 'agentLog';
-    const payload = { message: `Агент в проекте ${projectId} начал работу...`, timestamp: new Date() };
-    
+    const payload = {
+      message: `Агент в проекте ${projectId} начал работу...`,
+      timestamp: new Date(),
+    };
+
     this.eventsGateway.sendToProjectRoom(projectId, event, payload);
-    
-    return { success: true, message: `Тестовое событие отправлено в комнату ${projectId}` };
+
+    return {
+      success: true,
+      message: `Тестовое событие отправлено в комнату ${projectId}`,
+    };
   }
 }
