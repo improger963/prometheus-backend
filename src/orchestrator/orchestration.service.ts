@@ -31,20 +31,23 @@ export class OrchestrationService {
     this.logger.log(
       `Перехвачено событие 'task.created' для задачи: ${payload.taskId}`,
     );
-    this.startTaskExecution(payload.taskId, payload.user);
+    this.startTaskExecution(payload.taskId);
   }
 
-  async startTaskExecution(taskId: string, user: UserDocument): Promise<void> {
-    // --- ИСПРАВЛЕНИЕ: Добавляем .populate('agent') ---
+  // Убираем user, т.к. проверка прав уже прошла в TasksService при создании
+  async startTaskExecution(taskId: string): Promise<void> {
+    // --- ГЛАВНОЕ ИСПРАВЛЕНИЕ: Убеждаемся, что populate использует правильные имена полей из схемы ---
     const task = await this.taskModel
       .findById(taskId)
-      .populate(['project', 'agent']);
+      .populate<{
+        project: ProjectDocument;
+        agent: AgentDocument;
+      }>(['project', 'agent']);
 
     if (!task || !task.project || !task.agent) {
       this.logger.error(
-        `Задача ${taskId} не найдена или не имеет проекта/агента.`,
+        `Задача ${taskId} не найдена или не имеет полного набора данных (проект/агент).`,
       );
-      // Отправляем уведомление об ошибке на фронтенд, если возможно
       if (task && task.project) {
         const projectId = (task.project as ProjectDocument)._id.toString();
         this._logToProject(
@@ -56,16 +59,13 @@ export class OrchestrationService {
       return;
     }
 
-    const project = task.project as ProjectDocument;
-    const agent = task.agent as AgentDocument;
+    const { project, agent } = task;
     const projectId = project._id.toString();
 
-    // --- УЛУЧШЕННОЕ ЛОГИРОВАНИЕ ---
-    this.logger.log(`--- ЗАПУСК ЦИКЛА ОРКЕСТРАЦИИ ---`);
-    this.logger.log(`  - Задача: "${task.title}" (ID: ${taskId})`);
-    this.logger.log(`  - Проект: "${project.name}" (ID: ${projectId})`);
-    this.logger.log(`  - Агент: "${agent.name}" (ID: ${agent._id.toString()})`);
-    this.logger.log(`-----------------------------------`);
+    // --- УЛУЧШЕННОЕ ЛОГИРОВАНИЕ: Прозрачность системы ---
+    this.logger.log(
+      `[ОРКЕСТРАТОР] Запускаю задачу: "${task.title}" в проекте "${project.name}" для агента "${agent.name}"`,
+    );
 
     this._logToProject(
       projectId,
@@ -73,6 +73,8 @@ export class OrchestrationService {
     );
 
     let containerId: string | null = null;
+
+    // --- БЕЗОПАСНЫЙ ЦИКЛ ---
     try {
       await this.updateTaskStatus(taskId, projectId, TaskStatus.IN_PROGRESS);
       this._logToProject(projectId, `[Docker]: Создаю изолированную среду...`);
@@ -119,10 +121,14 @@ export class OrchestrationService {
       );
       await this.updateTaskStatus(taskId, projectId, TaskStatus.COMPLETED);
     } catch (error) {
-      this.logger.error(`Ошибка при выполнении задачи ${taskId}:`, error);
+      // Улучшенный вывод ошибки
+      this.logger.error(
+        `КРИТИЧЕСКАЯ ОШИБКА при выполнении задачи ${taskId}:`,
+        error,
+      );
       this._logToProject(
         projectId,
-        `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`,
+        `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message || 'Неизвестная ошибка выполнения'}`,
       );
       await this.updateTaskStatus(taskId, projectId, TaskStatus.FAILED);
     } finally {
