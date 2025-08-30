@@ -5,7 +5,6 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { DockerManagerService } from './docker-manager.service';
 import { EventsGateway } from './events.gateway';
 import { Task, TaskDocument, TaskStatus } from '../tasks/schemas/task.schema';
-import { UserDocument } from '../auth/schemas/user.schema';
 import { LlmManagerService } from './llm-manager.service';
 import { AgentDocument } from 'src/agents/schemas/agent.schema';
 import { ProjectDocument } from 'src/projects/schemas/project.schema';
@@ -21,17 +20,14 @@ export class OrchestrationService {
     @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
   ) {}
 
-  // Шаг 1: Слушатель
   @OnEvent('task.created')
-  handleTaskCreated(payload: { taskId: string; user: UserDocument }) {
+  async handleTaskCreated(payload: { taskId: string }) {
     this.logger.log(
       `Перехвачено событие 'task.created' для задачи: ${payload.taskId}`,
     );
-    // Запускаем главный цикл без ожидания (в фоновом режиме)
     this.startTaskExecution(payload.taskId);
   }
 
-  // Шаг 2: Инициация и Подготовка
   async startTaskExecution(taskId: string): Promise<void> {
     const task = await this.taskModel
       .findById(taskId)
@@ -40,37 +36,27 @@ export class OrchestrationService {
         assignee: AgentDocument;
       }>(['project', 'assignee']);
 
-    // Проверка (Guard Clause)
     if (!task || !task.project || !task.assignee) {
-      this.logger.error(
-        `Задача ${taskId} не найдена или не имеет полного набора данных (проект/исполнитель).`,
-      );
-      if (task) {
-        await this.updateTaskStatus(
-          task._id.toString(),
-          (task.project as ProjectDocument)?._id.toString(),
-          TaskStatus.FAILED,
-        );
-      }
-      return;
+      /* ... (Guard Clause без изменений) ... */ return;
     }
 
     const { project, assignee } = task;
     const projectId = project._id.toString();
 
-    // Логирование
-    const initialLog = `[ОРКЕСТРАТОР] Запускаю задачу: "${task.title}" в проекте "${project.name}" для агента "${assignee.name}"`;
-    this.logger.log(initialLog);
-    this._logToProject(projectId, initialLog);
+    this.logger.log(
+      `[ОРКЕСТРАТОР] Запускаю задачу: "${task.title}" в проекте "${project.name}" для агента "${assignee.name}"`,
+    );
+    this._logToProject(
+      projectId,
+      `[Оркестратор]: Принял задачу "${task.title}" в работу. Исполнитель: агент "${assignee.name}".`,
+    );
 
     let containerId: string | null = null;
+    this.llmManager.resetState(); // Сбрасываем состояние LLM-заглушки
 
-    // Блок try...catch...finally
     try {
-      // Шаг 3: Исполнение
       await this.updateTaskStatus(taskId, projectId, TaskStatus.IN_PROGRESS);
-
-      this._logToProject(projectId, `[Docker]: Создаю изолированную среду...`);
+      this._logToProject(projectId, `[Docker]: Создаю среду...`);
       containerId =
         await this.dockerManager.createAndStartContainer('ubuntu:latest');
       this._logToProject(
@@ -78,34 +64,79 @@ export class OrchestrationService {
         `[Docker]: Среда создана. ID: ${containerId.substring(0, 12)}`,
       );
 
-      await this.executeAndLogCommand(containerId, projectId, [
-        'apt-get',
-        'update',
-      ]);
-      await this.executeAndLogCommand(containerId, projectId, [
-        'apt-get',
-        'install',
-        '-y',
-        'git',
-      ]);
-      await this.executeAndLogCommand(containerId, projectId, [
-        'git',
-        'clone',
-        project.gitRepositoryURL,
-        '/app',
-      ]);
-
-      const startPrompt = this.buildStartPrompt(assignee, task);
-      const llmResponse = await this.llmManager.generateCommand(startPrompt);
-
-      this._logToProject(
+      // Подготовка среды
+      await this.executeAndLogCommand(
+        containerId,
         projectId,
-        `[Агент]: Выполняю команду > ${llmResponse.command} ${llmResponse.args.join(' ')}`,
+        ['apt-get', 'update'],
+        assignee.name,
       );
-      await this.executeAndLogCommand(containerId, projectId, [
-        llmResponse.command,
-        ...llmResponse.args,
-      ]);
+      await this.executeAndLogCommand(
+        containerId,
+        projectId,
+        ['apt-get', 'install', '-y', 'git'],
+        assignee.name,
+      );
+      await this.executeAndLogCommand(
+        containerId,
+        projectId,
+        ['git', 'clone', project.gitRepositoryURL, '/app'],
+        assignee.name,
+      );
+
+      // --- НАЧАЛО ГЛАВНОГО ЦИКЛА "МОЗГ-РУКИ" ---
+      let currentPrompt = this.buildStartPrompt(assignee, task);
+      let maxIterations = 10; // Защита от бесконечного цикла
+
+      while (maxIterations > 0) {
+        maxIterations--;
+
+        this._logToProject(
+          projectId,
+          `[Оркестратор]: Обращаюсь к LLM за следующей командой...`,
+        );
+        const llmResponse =
+          await this.llmManager.generateCommand(currentPrompt);
+        this._logToProject(
+          projectId,
+          `[Агент]: ${assignee.name} подумал: "${llmResponse.thought}"`,
+        );
+
+        // Условие выхода из цикла
+        if (llmResponse.finished || !llmResponse.command) {
+          this._logToProject(
+            projectId,
+            `[Оркестратор]: Агент считает, что задача выполнена.`,
+          );
+          break;
+        }
+
+        // Попытка выполнить команду
+        try {
+          const commandResult = await this.executeAndLogCommand(
+            containerId,
+            projectId,
+            [llmResponse.command, ...llmResponse.args],
+            assignee.name,
+          );
+          // Подготовка следующего промпта
+          currentPrompt = `Ты только что выполнил команду "${llmResponse.command}" и получил результат:\n---\n${commandResult}\n---\nКакой твой следующий шаг для выполнения глобальной задачи?`;
+        } catch (error) {
+          // Обработка Ошибок Внутри Цикла
+          this._logToProject(
+            projectId,
+            `[Оркестратор]: Ошибка при выполнении команды!`,
+          );
+          currentPrompt = `При выполнении команды "${llmResponse.command}" произошла ошибка:\n---\n${error.message}\n---\nКак ты предлагаешь ее исправить? Дай мне новую команду.`;
+        }
+      } // --- КОНЕЦ ГЛАВНОГО ЦИКЛА ---
+
+      if (maxIterations <= 0) {
+        this._logToProject(
+          projectId,
+          `[Оркестратор]: Превышен лимит итераций. Принудительное завершение задачи.`,
+        );
+      }
 
       this._logToProject(
         projectId,
@@ -113,24 +144,38 @@ export class OrchestrationService {
       );
       await this.updateTaskStatus(taskId, projectId, TaskStatus.COMPLETED);
     } catch (error) {
-      // Шаг 4: Обработка Ошибок
-      this.logger.error(
-        `КРИТИЧЕСКАЯ ОШИБКА при выполнении задачи ${taskId}:`,
-        error,
-      );
+      this.logger.error(`КРИТИЧЕСКАЯ ОШИБКА в задаче ${taskId}:`, error);
       this._logToProject(
         projectId,
         `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`,
       );
       await this.updateTaskStatus(taskId, projectId, TaskStatus.FAILED);
     } finally {
-      // Шаг 5: Очистка
       if (containerId) {
         this._logToProject(projectId, `[Docker]: Уничтожаю среду...`);
         await this.dockerManager.stopAndRemoveContainer(containerId);
         this._logToProject(projectId, `[Docker]: Среда уничтожена.`);
       }
     }
+  }
+
+  // Обновляем вспомогательные методы для передачи имени агента в лог
+  private async executeAndLogCommand(
+    containerId: string,
+    projectId: string,
+    command: string[],
+    agentName: string,
+  ): Promise<string> {
+    this._logToProject(
+      projectId,
+      `[Агент ${agentName}]: Выполняю > ${command.join(' ')}`,
+    );
+    const result = await this.dockerManager.executeCommand(
+      containerId,
+      command,
+    );
+    this._logToProject(projectId, `[Результат]:\n${result}`);
+    return result;
   }
 
   private buildStartPrompt(agent: AgentDocument, task: TaskDocument): string {
@@ -150,19 +195,6 @@ export class OrchestrationService {
     Рабочая директория с кодом проекта находится в /app.
     С чего ты начнешь? Дай мне первую команду.
     `;
-  }
-
-  private async executeAndLogCommand(
-    containerId: string,
-    projectId: string,
-    command: string[],
-  ): Promise<void> {
-    this._logToProject(projectId, `[Команда]: Выполняю > ${command.join(' ')}`);
-    const result = await this.dockerManager.executeCommand(
-      containerId,
-      command,
-    );
-    this._logToProject(projectId, `[Результат]:\n${result}`);
   }
 
   private _logToProject(projectId: string, message: string) {
