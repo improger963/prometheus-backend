@@ -7,19 +7,23 @@ import { OrchestrationService } from './orchestration.service';
 import { OrchestratorController } from './orchestrator.controller';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { Project, ProjectSchema } from 'src/projects/schemas/project.schema';
+import { LlmManagerService } from './llm-manager.service'; // <-- Добавляем
+import { Agent, AgentSchema } from 'src/agents/schemas/agent.schema'; // <-- Добавляем
 
 @Module({
   imports: [
-    AuthModule, // Для использования AuthGuard в контроллере
+    AuthModule,
     MongooseModule.forFeature([
       { name: Task.name, schema: TaskSchema },
       { name: Project.name, schema: ProjectSchema },
+      { name: Agent.name, schema: AgentSchema }, // <-- Добавляем
     ]),
   ],
   providers: [
     DockerManagerService,
     EventsGateway,
-    OrchestrationService, // <-- Регистрируем наш новый "мозг"
+    OrchestrationService,
+    LlmManagerService, // <-- Регистрируем
   ],
   exports: [DockerManagerService, EventsGateway],
   controllers: [OrchestratorController], // <-- Регистрируем контроллер

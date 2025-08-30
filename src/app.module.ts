@@ -8,6 +8,7 @@ import { AgentsModule } from './agents/agents.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AuthModule } from './auth/auth.module';
 import { OrchestratorModule } from './orchestrator/orchestrator.module';
+import { EventEmitterModule } from '@nestjs/event-emitter'; // <-- 1. Импортируем
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { OrchestratorModule } from './orchestrator/orchestrator.module';
     TasksModule,
     AuthModule,
     OrchestratorModule,
+    EventEmitterModule.forRoot(), // <-- 2. Регистрируем модуль
   ],
   controllers: [AppController],
   providers: [AppService],

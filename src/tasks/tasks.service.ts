@@ -5,12 +5,15 @@ import { Task, TaskDocument } from './schemas/task.schema';
 import { UserDocument } from '../auth/schemas/user.schema';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { Project, ProjectDocument } from '../projects/schemas/project.schema';
+import { EventEmitter2 } from '@nestjs/event-emitter'; // <-- Импорт
+
 
 @Injectable()
 export class TasksService {
   constructor(
     @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
     @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
+    private eventEmitter: EventEmitter2, // <-- Инъекция
   ) {}
 
   // Вспомогательная функция для проверки, что проект принадлежит пользователю
@@ -23,11 +26,24 @@ export class TasksService {
 
   async create(projectId: string, createTaskDto: CreateTaskDto, user: UserDocument): Promise<Task> {
     await this._verifyProjectOwnership(projectId, user);
+    const { title, description, agentId } = createTaskDto;
+    
     const newTask = new this.taskModel({
-      ...createTaskDto,
-      project: projectId, // Привязываем задачу к проекту
+      title,
+      description,
+      agent: agentId, // Привязываем агента
+      project: projectId,
     });
-    return newTask.save();
+    
+    await newTask.save();
+
+    // ЗАЖИГАНИЕ ИСКРЫ: Генерируем событие после успешного сохранения!
+    this.eventEmitter.emit('task.created', {
+      taskId: newTask._id.toString(),
+      user,
+    });
+
+    return newTask;
   }
 
   async findAll(projectId: string, user: UserDocument): Promise<Task[]> {

@@ -22,7 +22,7 @@ export class TasksController {
   @Post()
   create(
     @Param('projectId') projectId: string,
-    @Body() createTaskDto: CreateTaskDto,
+    @Body() createTaskDto: CreateTaskDto, // DTO уже обновлен
     @Req() req: { user: UserDocument },
   ) {
     return this.tasksService.create(projectId, createTaskDto, req.user);
