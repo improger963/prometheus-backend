@@ -9,6 +9,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { AuthModule } from './auth/auth.module';
 import { OrchestratorModule } from './orchestrator/orchestrator.module';
 import { EventEmitterModule } from '@nestjs/event-emitter'; // <-- 1. Импортируем
+import { DatabaseModule } from './database/database.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter'; // <-- 1. Импор
     }),
 
     // 3. Подключаем все наши модули
+    DatabaseModule, // <-- Регистрируем наш глобальный модуль
     ProjectsModule,
     AgentsModule,
     TasksModule,

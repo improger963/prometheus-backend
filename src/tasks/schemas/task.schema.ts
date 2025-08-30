@@ -27,9 +27,9 @@ export class Task {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Project', required: true })
   project: Project;
 
-  // Связь с агентом-исполнителем (опциональная)
+
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Agent', required: false })
-  agent?: Agent;
+  assignee?: Agent; // <--- ПЕРЕИМЕНОВАНО с 'agent' на 'assignee'
 }
 
 export const TaskSchema = SchemaFactory.createForClass(Task);

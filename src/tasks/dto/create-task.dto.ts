@@ -2,14 +2,16 @@ import { IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateTaskDto {
   @IsString()
-  @IsNotEmpty({ message: 'Заголовок задачи не может быть пустым.' })
+  @IsNotEmpty()
   title: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'Описание задачи не может быть пустым.' })
+  @IsNotEmpty()
   description: string;
 
-  @IsMongoId({ message: 'ID агента должен быть валидным Mongo ID.' })
-  @IsOptional() // Делаем поле опциональным на случай, если мы хотим создать задачу без немедленного назначения
+  // Поле для назначения агента-исполнителя
+  // ИМЯ ПРИВЕДЕНО В СООТВЕТСТВИЕ С СЕРВИСОМ
+  @IsMongoId()
+  @IsOptional()
   agentId?: string;
 }

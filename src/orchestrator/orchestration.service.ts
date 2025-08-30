@@ -1,15 +1,11 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DockerManagerService } from './docker-manager.service';
 import { EventsGateway } from './events.gateway';
 import { Task, TaskDocument, TaskStatus } from '../tasks/schemas/task.schema';
+import { UserDocument } from '../auth/schemas/user.schema';
 import { LlmManagerService } from './llm-manager.service';
 import { AgentDocument } from 'src/agents/schemas/agent.schema';
 import { ProjectDocument } from 'src/projects/schemas/project.schema';
@@ -25,53 +21,55 @@ export class OrchestrationService {
     @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
   ) {}
 
+  // Шаг 1: Слушатель
   @OnEvent('task.created')
-  async handleTaskCreated(payload: { taskId: string }) {
+  handleTaskCreated(payload: { taskId: string; user: UserDocument }) {
     this.logger.log(
       `Перехвачено событие 'task.created' для задачи: ${payload.taskId}`,
     );
+    // Запускаем главный цикл без ожидания (в фоновом режиме)
     this.startTaskExecution(payload.taskId);
   }
 
+  // Шаг 2: Инициация и Подготовка
   async startTaskExecution(taskId: string): Promise<void> {
     const task = await this.taskModel
       .findById(taskId)
       .populate<{
         project: ProjectDocument;
-        agent: AgentDocument;
-      }>(['project', 'agent']);
+        assignee: AgentDocument;
+      }>(['project', 'assignee']);
 
-    if (!task || !task.project || !task.agent) {
+    // Проверка (Guard Clause)
+    if (!task || !task.project || !task.assignee) {
       this.logger.error(
-        `Задача ${taskId} не найдена или не имеет полного набора данных (проект/агент).`,
+        `Задача ${taskId} не найдена или не имеет полного набора данных (проект/исполнитель).`,
       );
-      if (task && task.project) {
-        const projectId = (task.project as ProjectDocument)._id.toString();
-        this._logToProject(
-          projectId,
-          `[Оркестратор]: Ошибка! Не удалось запустить задачу. Задача или назначенный агент не найдены.`,
+      if (task) {
+        await this.updateTaskStatus(
+          task._id.toString(),
+          (task.project as ProjectDocument)?._id.toString(),
+          TaskStatus.FAILED,
         );
-        await this.updateTaskStatus(taskId, projectId, TaskStatus.FAILED);
       }
       return;
     }
 
-    const { project, agent } = task;
+    const { project, assignee } = task;
     const projectId = project._id.toString();
 
-    this.logger.log(
-      `[ОРКЕСТРАТОР] Запускаю задачу: "${task.title}" в проекте "${project.name}" для агента "${agent.name}"`,
-    );
-
-    this._logToProject(
-      projectId,
-      `[Оркестратор]: Принял задачу "${task.title}" в работу. Исполнитель: агент "${agent.name}".`,
-    );
+    // Логирование
+    const initialLog = `[ОРКЕСТРАТОР] Запускаю задачу: "${task.title}" в проекте "${project.name}" для агента "${assignee.name}"`;
+    this.logger.log(initialLog);
+    this._logToProject(projectId, initialLog);
 
     let containerId: string | null = null;
 
+    // Блок try...catch...finally
     try {
+      // Шаг 3: Исполнение
       await this.updateTaskStatus(taskId, projectId, TaskStatus.IN_PROGRESS);
+
       this._logToProject(projectId, `[Docker]: Создаю изолированную среду...`);
       containerId =
         await this.dockerManager.createAndStartContainer('ubuntu:latest');
@@ -97,14 +95,13 @@ export class OrchestrationService {
         '/app',
       ]);
 
-      const startPrompt = this.buildStartPrompt(agent, task);
-      this._logToProject(
-        projectId,
-        `[LLM]: Формирую стартовый промпт для агента "${agent.name}"...`,
-      );
-
+      const startPrompt = this.buildStartPrompt(assignee, task);
       const llmResponse = await this.llmManager.generateCommand(startPrompt);
 
+      this._logToProject(
+        projectId,
+        `[Агент]: Выполняю команду > ${llmResponse.command} ${llmResponse.args.join(' ')}`,
+      );
       await this.executeAndLogCommand(containerId, projectId, [
         llmResponse.command,
         ...llmResponse.args,
@@ -112,20 +109,22 @@ export class OrchestrationService {
 
       this._logToProject(
         projectId,
-        `[Оркестратор]: Первая фаза задачи "${task.title}" успешно выполнена.`,
+        `[Оркестратор]: Задача "${task.title}" успешно выполнена.`,
       );
       await this.updateTaskStatus(taskId, projectId, TaskStatus.COMPLETED);
     } catch (error) {
+      // Шаг 4: Обработка Ошибок
       this.logger.error(
         `КРИТИЧЕСКАЯ ОШИБКА при выполнении задачи ${taskId}:`,
         error,
       );
       this._logToProject(
         projectId,
-        `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message || 'Неизвестная ошибка выполнения'}`,
+        `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`,
       );
       await this.updateTaskStatus(taskId, projectId, TaskStatus.FAILED);
     } finally {
+      // Шаг 5: Очистка
       if (containerId) {
         this._logToProject(projectId, `[Docker]: Уничтожаю среду...`);
         await this.dockerManager.stopAndRemoveContainer(containerId);

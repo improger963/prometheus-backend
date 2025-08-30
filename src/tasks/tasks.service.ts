@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -9,6 +9,8 @@ import { Project, ProjectDocument } from '../projects/schemas/project.schema';
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
   constructor(
     @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
     @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
@@ -41,16 +43,28 @@ export class TasksService {
     const newTask = new this.taskModel({
       title,
       description,
-      agent: agentId,
+      assignee: agentId,
       project: projectId,
     });
 
     await newTask.save();
+    this.logger.log(`Задача ${newTask._id} успешно сохранена в БД.`);
+    this.logger.log(
+      `Задача сохранена в БД. Документ: ${JSON.stringify(newTask, null, 2)}`,
+    );
 
-    // Отправляем ТОЛЬКО ID задачи. Оркестратор сам найдет все, что ему нужно.
+    // Генерируем событие
     this.eventEmitter.emit('task.created', {
       taskId: newTask._id.toString(),
+      user,
     });
+    this.logger.log(
+      `Событие 'task.created' для задачи ${newTask._id} сгенерировано.`,
+    );
+
+    this.logger.log(
+      `Событие 'task.created' сгенерировано для taskId: ${newTask._id.toString()}`,
+    );
 
     return newTask;
   }
