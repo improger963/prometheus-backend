@@ -39,17 +39,20 @@ export class LlmMultiplexerService {
   async generate(
     agent: Agent,
     prompt: string,
-    retryCount = 3,
+    options?: { modelOverride?: string; retryCount?: number },
   ): Promise<LlmResponse> {
+    const retryCount = options?.retryCount ?? 3;
     if (retryCount <= 0) {
       throw new Error(
         'Превышен лимит попыток получить корректный ответ от LLM.',
       );
     }
 
-    const { provider, model } = agent.llmConfig;
+    const model = options?.modelOverride || agent.llmConfig.model;
+    const provider = agent.llmConfig.provider;
+
     this.logger.log(
-      `Маршрутизация запроса к провайдеру: ${provider}, модель: ${model} (Попытка #${4 - retryCount})`,
+      `Маршрутизация: ${provider}, модель: ${model} (Попытка #${4 - retryCount})`,
     );
 
     try {
@@ -80,7 +83,9 @@ export class LlmMultiplexerService {
         `Ошибка при обработке ответа LLM: ${error.message}. Запускаю повторную попытку...`,
       );
       const fixPrompt = `Твой предыдущий ответ вызвал ошибку: "${error.message}". Напоминаю, твой ответ должен быть СТРОГО в формате JSON: {"thought": "...", "command": "...", "args": [...], "finished": boolean}.`;
-      return this.generate(agent, `${prompt}\n\n${fixPrompt}`, retryCount - 1);
+      return this.generate(agent, `${prompt}\n\n${fixPrompt}`, {
+        retryCount: retryCount - 1,
+      });
     }
   }
 

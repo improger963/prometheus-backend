@@ -22,7 +22,6 @@ export class Project {
   @Column()
   gitRepositoryURL: string;
 
-
   @OneToMany(() => Agent, (agent) => agent.project)
   agents: Agent[];
 
@@ -41,4 +40,7 @@ export class Project {
 
   @ManyToOne(() => User, (user) => user.projects, { onDelete: 'CASCADE' })
   user: User;
+
+  @Column({ nullable: true }) 
+  gitAccessToken?: string;
 }

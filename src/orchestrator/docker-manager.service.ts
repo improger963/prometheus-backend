@@ -35,7 +35,10 @@ export class DockerManagerService {
     }
   }
 
-  async createAndStartContainer(imageName: string): Promise<string> {
+  async createAndStartContainer(
+    imageName: string,
+    envVars: string[] = [],
+  ): Promise<string> {
     try {
       await this.pullImage(imageName);
       const container: Container = await this.docker.createContainer({
@@ -43,6 +46,7 @@ export class DockerManagerService {
         Tty: true,
         Cmd: ['/bin/bash'],
         OpenStdin: true,
+        Env: envVars,
       });
       await container.start();
       return container.id;

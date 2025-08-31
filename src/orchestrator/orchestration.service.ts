@@ -86,7 +86,6 @@ export class OrchestrationService {
         agentId,
         agentName,
       );
-
       this._logToProject(
         projectId,
         `[Docker]: Создаю среду на базе образа "${project.baseDockerImage}"...`,
@@ -125,8 +124,10 @@ export class OrchestrationService {
         agentName,
       );
 
-      let history = `КОНТЕКСТ: Ты только что вошел в систему. Код проекта находится в /app. Твой первый шаг?`;
-      let maxIterations = 10;
+      // --- НАЧАЛО ОПТИМИЗИРОВАННОГО ЦИКЛА ---
+      let summarizedHistory = `КОНТЕКСТ: Ты находишься в Git-репозитории в /app.`;
+      let turnHistory: string[] = [];
+      let maxIterations = 15;
 
       while (maxIterations > 0) {
         maxIterations--;
@@ -134,7 +135,7 @@ export class OrchestrationService {
         const currentPrompt = this.buildIterativePrompt(
           assignee,
           task,
-          history,
+          summarizedHistory,
         );
 
         this._logToProject(
@@ -164,6 +165,7 @@ export class OrchestrationService {
           break;
         }
 
+        let turnResult: string;
         try {
           const commandResult = await this.executeAndLogCommand(
             containerId,
@@ -172,11 +174,41 @@ export class OrchestrationService {
             agentId,
             agentName,
           );
-          history = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ:\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Результат: УСПЕХ\n- Вывод:\n\`\`\`\n${commandResult || '(пустой вывод)'}\n\`\`\``;
+          const truncatedResult =
+            commandResult.length > 2000
+              ? commandResult.substring(0, 2000) + '\n... (вывод обрезан)'
+              : commandResult;
+          turnResult = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ (УСПЕХ):\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Вывод:\n\`\`\`\n${truncatedResult}\n\`\`\``;
         } catch (error) {
-          history = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ:\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Результат: ОШИБКА\n- Вывод ошибки:\n\`\`\`\n${error.message}\n\`\`\``;
+          turnResult = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ (ОШИБКА):\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Ошибка:\n\`\`\`\n${error.message}\n\`\`\``;
         }
-      }
+
+        turnHistory.push(turnResult);
+
+        if (turnHistory.length >= 3) {
+          this._logToProject(
+            projectId,
+            `[Оркестратор]: Контекст разросся. Запускаю суммаризацию...`,
+            agentId,
+            agentName,
+          );
+          summarizedHistory = await this._summarizeHistory(
+            assignee,
+            task,
+            summarizedHistory,
+            turnHistory,
+          );
+          turnHistory = [];
+          this._logToProject(
+            projectId,
+            `[Оркестратор]: Контекст сжат. Новое саммари:\n${summarizedHistory}`,
+            agentId,
+            agentName,
+          );
+        } else {
+          summarizedHistory += `\n\n` + turnResult;
+        }
+      } // --- КОНЕЦ ЦИКЛА ---
 
       if (maxIterations <= 0) {
         this._logToProject(
@@ -196,14 +228,10 @@ export class OrchestrationService {
       );
     } catch (error) {
       this.logger.error(`КРИТИЧЕСКАЯ ОШИБКА в задаче ${taskId}:`, error);
-
       let userFriendlyMessage = `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`;
       if (error instanceof DockerConnectionError) {
-        userFriendlyMessage = `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: Не удалось подключиться к Docker. Проверьте, запущен ли Docker Daemon.`;
-      } else if (error instanceof ImagePullError) {
-        userFriendlyMessage = `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить необходимый Docker-образ. Проверьте интернет-соединение.`;
+        /* ... */
       }
-
       this._logToProject(projectId, userFriendlyMessage, agentId, agentName);
       await this.updateTaskStatus(
         taskId,
@@ -231,26 +259,50 @@ export class OrchestrationService {
     }
   }
 
+  private async _summarizeHistory(
+    agent: Agent,
+    task: Task,
+    oldSummary: string,
+    turnsToSummarize: string[],
+  ): Promise<string> {
+    const summarizationPrompt = `
+      Твоя задача - обновить саммари диалога.
+      ПРЕДЫДУЩЕЕ САММАРИ:
+      ${oldSummary}
+
+      ПОСЛЕДНИЕ ДЕЙСТВИЯ (которые нужно добавить в саммари):
+      ${turnsToSummarize.join('\n\n')}
+
+      ОБНОВИ САММАРИ: Перепиши его, включив новые факты из последних действий. Сохрани только ключевые выводы и состояние. Будь краток. Верни только текст нового саммари.
+      `;
+
+    // Создаем временную "личность" агента для задачи суммаризации
+    const summarizerAgent: Agent = {
+      ...agent,
+      llmConfig: { provider: 'groq', model: 'llama3-8b-8192' },
+    };
+
+    // Мы ожидаем текстовый ответ, а не JSON
+    const response = await this.llmMultiplexer.generate(
+      summarizerAgent,
+      summarizationPrompt,
+    );
+
+    // LLM может вернуть саммари в поле `thought`. Это наша лучшая эвристика.
+    return response.thought;
+  }
+
   private buildIterativePrompt(
     agent: Agent,
     task: Task,
     history: string,
   ): string {
     return `
-    SYSTEM PROMPT: Ты - автономный AI-агент-инструмент.
-    ТВОЯ РОЛЬ: ${agent.role}.
-    ПРАВИЛА:
-    1. Ты работаешь в shell внутри Docker-контейнера.
-    2. Ты должен выполнить ГЛОБАЛЬНУЮ ЗАДАЧУ.
-    3. Твой ответ ВСЕГДА должен быть ТОЛЬКО JSON-объектом, без текста до или после.
-    4. Если задача выполнена, "finished" должно быть true.
-
-    СТРОГИЙ ФОРМАТ ОТВЕТА:
-    {"thought": "Моя мысль.", "command": "команда", "args": ["аргумент"], "finished": false}
-    
+    SYSTEM PROMPT: Ты - AI-агент. Твой ответ - ВСЕГДА ТОЛЬКО JSON.
+    ФОРМАТ: {"thought": "моя мысль", "command": "команда", "args": ["аргумент"], "finished": false}
     ГЛОБАЛЬНАЯ ЗАДАЧА: "${task.title}: ${task.description}"
     
-    ИСТОРИЯ ДЕЙСТВИЙ И КОНТЕКСТ:
+    ИСТОРИЯ И КОНТЕКСТ:
     ${history}
 
     ТВОЙ СЛЕДУЮЩИЙ ШАГ В ФОРМАТЕ JSON:`;

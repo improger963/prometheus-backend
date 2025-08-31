@@ -9,6 +9,10 @@ export class CreateProjectDto {
   @IsNotEmpty({ message: 'URL git-репозитория не может быть пустым.' })
   gitRepositoryURL: string;
   @IsString()
-  @IsOptional() // Делаем его опциональным, так как у нас есть значение по умолчанию
+  @IsOptional()
   baseDockerImage?: string;
+
+  @IsString()
+  @IsOptional()
+  gitAccessToken?: string;
 }
