@@ -8,9 +8,9 @@ import {
 } from 'class-validator';
 
 class LlmConfigDto {
-  @IsEnum(['google', 'openai', 'groq'])
+  @IsEnum(['google', 'openai', 'groq', 'mistral'])
   @IsNotEmpty()
-  provider: 'google' | 'openai' | 'groq';
+  provider: 'google' | 'openai' | 'groq' | 'mistral';
 
   @IsString()
   @IsNotEmpty()

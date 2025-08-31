@@ -26,7 +26,7 @@ export class Agent {
 
   @Column('jsonb')
   llmConfig: {
-    provider: 'google' | 'openai' | 'groq';
+    provider: 'google' | 'openai' | 'groq' | 'mistral';
     model: string;
   };
 

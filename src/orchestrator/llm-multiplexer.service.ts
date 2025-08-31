@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import Groq from 'groq-sdk';
+import { Mistral } from '@mistralai/mistralai';
 import { Agent } from 'src/agents/entities/agent.entity';
 
 export interface LlmResponse {
@@ -18,6 +19,7 @@ export class LlmMultiplexerService {
   private googleAI: GoogleGenerativeAI;
   private openAI: OpenAI;
   private groq: Groq;
+  private mistral: Mistral;
 
   constructor(private readonly configService: ConfigService) {
     this.googleAI = new GoogleGenerativeAI(
@@ -28,6 +30,9 @@ export class LlmMultiplexerService {
     });
     this.groq = new Groq({
       apiKey: this.configService.getOrThrow<string>('GROQ_API_KEY'),
+    });
+    this.mistral = new Mistral({
+      apiKey: this.configService.getOrThrow<string>('MISTRAL_API_KEY'),
     });
   }
 
@@ -59,24 +64,42 @@ export class LlmMultiplexerService {
         case 'groq':
           responseText = await this._callGroq(prompt, model);
           break;
+        case 'mistral':
+          responseText = await this._callMistral(prompt, model);
+          break;
         default:
           throw new BadRequestException(
             `Неподдерживаемый LLM провайдер: ${provider}`,
           );
       }
+
       this.logger.log(`[${provider}] Сырой ответ: ${responseText}`);
       return this.parseAndHealResponse(responseText);
     } catch (error) {
-      // --- УЛУЧШЕННАЯ ОБРАТНАЯ СВЯЗЬ ---
       this.logger.warn(
         `Ошибка при обработке ответа LLM: ${error.message}. Запускаю повторную попытку...`,
       );
-      // Логируем полный объект ошибки для глубокой отладки
-      this.logger.debug('Полный объект ошибки LLM:', error);
-
-      const fixPrompt = `${prompt}\n\nТвой предыдущий ответ вызвал ошибку: "${error.message}". Напоминаю, твой ответ должен быть СТРОГО в формате JSON: {"thought": "...", "command": "...", "args": [...], "finished": boolean}.`;
-      return this.generate(agent, fixPrompt, retryCount - 1);
+      const fixPrompt = `Твой предыдущий ответ вызвал ошибку: "${error.message}". Напоминаю, твой ответ должен быть СТРОГО в формате JSON: {"thought": "...", "command": "...", "args": [...], "finished": boolean}.`;
+      return this.generate(agent, `${prompt}\n\n${fixPrompt}`, retryCount - 1);
     }
+  }
+
+  private async _callMistral(prompt: string, model: string): Promise<string> {
+    const response = await this.mistral.chat.complete({
+      model: model,
+      messages: [{ role: 'user', content: prompt }],
+      responseFormat: { type: 'json_object' },
+    });
+
+    const responseText = response.choices[0].message.content;
+
+    if (typeof responseText !== 'string') {
+      throw new Error(
+        'Mistral API вернул ответ в неожиданном формате (не строка).',
+      );
+    }
+
+    return responseText;
   }
 
   private async _callGoogle(prompt: string, model: string): Promise<string> {
@@ -89,7 +112,7 @@ export class LlmMultiplexerService {
     const completion = await this.openAI.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
       model,
-      response_format: { type: 'json_object' }, // Просим OpenAI принудительно вернуть JSON
+      response_format: { type: 'json_object' },
     });
     const responseText = completion.choices[0].message.content;
     if (!responseText) throw new Error('OpenAI API вернул пустой ответ.');
@@ -100,31 +123,25 @@ export class LlmMultiplexerService {
     const completion = await this.groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
       model,
-      response_format: { type: 'json_object' }, // Просим Groq принудительно вернуть JSON
+      response_format: { type: 'json_object' },
     });
     const responseText = completion.choices[0].message.content;
     if (!responseText) throw new Error('Groq API вернул пустой ответ.');
     return responseText;
   }
 
-  // --- ШАГ 1: "САМОИСЦЕЛЯЮЩИЙСЯ ПАРСЕР" ---
   private parseAndHealResponse(text: string): LlmResponse {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch || !jsonMatch[0]) {
       throw new Error('В ответе LLM не найден JSON-объект.');
     }
-
     const parsed = JSON.parse(jsonMatch[0]);
-
-    // "Исцеляем" ответ, подставляя безопасные значения по умолчанию
     const healedResponse: LlmResponse = {
       thought: parsed.thought || '',
       command: parsed.command || '',
       args: parsed.args || [],
       finished: typeof parsed.finished === 'boolean' ? parsed.finished : false,
     };
-
-    // Проверяем, что args - это массив строк
     if (
       !Array.isArray(healedResponse.args) ||
       !healedResponse.args.every((arg) => typeof arg === 'string')
@@ -134,7 +151,6 @@ export class LlmMultiplexerService {
       );
       healedResponse.args = [];
     }
-
     this.logger.log('"Исцеленный" и валидный ответ от LLM:', healedResponse);
     return healedResponse;
   }
