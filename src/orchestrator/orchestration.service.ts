@@ -41,12 +41,12 @@ export class OrchestrationService {
 
     if (!task || !task.project || !task.assignee) {
       this.logger.error(
-        `Задача ${taskId} не найдена или не имеет полного набора данных (проект/исполнитель).`,
+        `Задача ${taskId} не найдена или не имеет полного набора данных.`,
       );
       if (task && task.project) {
         this._logToProject(
           task.project.id,
-          `[Оркестратор]: Ошибка! Задача или назначенный агент не найдены.`,
+          `[Оркестратор]: Ошибка! Задача или агент не найдены.`,
           'system',
           'System',
         );
@@ -86,14 +86,13 @@ export class OrchestrationService {
         agentId,
         agentName,
       );
-      this._logToProject(
-        projectId,
-        `[Docker]: Создаю среду на базе образа "${project.baseDockerImage}"...`,
-        agentId,
-        agentName,
-      );
+
+      const envVars = project.gitAccessToken
+        ? [`GIT_ACCESS_TOKEN=${project.gitAccessToken}`]
+        : [];
       containerId = await this.dockerManager.createAndStartContainer(
         project.baseDockerImage,
+        envVars,
       );
       this._logToProject(
         projectId,
@@ -102,12 +101,20 @@ export class OrchestrationService {
         agentName,
       );
 
+      // --- ФАЗА 1: ПОДГОТОВКА СРЕДЫ (в корне '/') ---
+      this._logToProject(
+        projectId,
+        `[Docker]: Подготовка среды...`,
+        agentId,
+        agentName,
+      );
       await this.executeAndLogCommand(
         containerId,
         projectId,
         ['apt-get', 'update'],
         agentId,
         agentName,
+        null,
       );
       await this.executeAndLogCommand(
         containerId,
@@ -115,18 +122,48 @@ export class OrchestrationService {
         ['apt-get', 'install', '-y', 'git'],
         agentId,
         agentName,
+        null,
+      );
+
+      const repoUrl = new URL(project.gitRepositoryURL);
+      if (project.gitAccessToken) {
+        repoUrl.username = project.gitAccessToken;
+      }
+      await this.executeAndLogCommand(
+        containerId,
+        projectId,
+        ['git', 'clone', repoUrl.toString(), '/app'],
+        agentId,
+        agentName,
+        null,
+      );
+
+      await this.executeAndLogCommand(
+        containerId,
+        projectId,
+        ['git', '-C', '/app', 'config', 'user.name', `"${agentName}"`],
+        agentId,
+        agentName,
+        null,
       );
       await this.executeAndLogCommand(
         containerId,
         projectId,
-        ['git', 'clone', project.gitRepositoryURL, '/app'],
+        [
+          'git',
+          '-C',
+          '/app',
+          'config',
+          'user.email',
+          `"${agentId}@prometheus.dev"`,
+        ],
         agentId,
         agentName,
+        null,
       );
 
-      // --- НАЧАЛО ОПТИМИЗИРОВАННОГО ЦИКЛА ---
-      let summarizedHistory = `КОНТЕКСТ: Ты находишься в Git-репозитории в /app.`;
-      let turnHistory: string[] = [];
+      // --- ФАЗА 2: РАБОТА АГЕНТА (в '/app') ---
+      let history = `КОНТЕКСТ: Ты находишься в Git-репозитории в /app. Твой первый шаг?`;
       let maxIterations = 15;
 
       while (maxIterations > 0) {
@@ -135,14 +172,7 @@ export class OrchestrationService {
         const currentPrompt = this.buildIterativePrompt(
           assignee,
           task,
-          summarizedHistory,
-        );
-
-        this._logToProject(
-          projectId,
-          `[Оркестратор]: Обращаюсь к LLM...`,
-          agentId,
-          agentName,
+          history,
         );
         const llmResponse = await this.llmMultiplexer.generate(
           assignee,
@@ -165,7 +195,6 @@ export class OrchestrationService {
           break;
         }
 
-        let turnResult: string;
         try {
           const commandResult = await this.executeAndLogCommand(
             containerId,
@@ -173,42 +202,13 @@ export class OrchestrationService {
             [llmResponse.command, ...llmResponse.args],
             agentId,
             agentName,
+            '/app',
           );
-          const truncatedResult =
-            commandResult.length > 2000
-              ? commandResult.substring(0, 2000) + '\n... (вывод обрезан)'
-              : commandResult;
-          turnResult = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ (УСПЕХ):\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Вывод:\n\`\`\`\n${truncatedResult}\n\`\`\``;
+          history = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ (УСПЕХ):\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Вывод:\n\`\`\`\n${commandResult || '(пустой вывод)'}\n\`\`\``;
         } catch (error) {
-          turnResult = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ (ОШИБКА):\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Ошибка:\n\`\`\`\n${error.message}\n\`\`\``;
+          history = `ПРЕДЫДУЩЕЕ ДЕЙСТВИЕ (ОШИБКА):\n- Команда: "${llmResponse.command} ${llmResponse.args.join(' ')}"\n- Ошибка:\n\`\`\`\n${error.message}\n\`\`\``;
         }
-
-        turnHistory.push(turnResult);
-
-        if (turnHistory.length >= 3) {
-          this._logToProject(
-            projectId,
-            `[Оркестратор]: Контекст разросся. Запускаю суммаризацию...`,
-            agentId,
-            agentName,
-          );
-          summarizedHistory = await this._summarizeHistory(
-            assignee,
-            task,
-            summarizedHistory,
-            turnHistory,
-          );
-          turnHistory = [];
-          this._logToProject(
-            projectId,
-            `[Оркестратор]: Контекст сжат. Новое саммари:\n${summarizedHistory}`,
-            agentId,
-            agentName,
-          );
-        } else {
-          summarizedHistory += `\n\n` + turnResult;
-        }
-      } // --- КОНЕЦ ЦИКЛА ---
+      }
 
       if (maxIterations <= 0) {
         this._logToProject(
@@ -259,50 +259,26 @@ export class OrchestrationService {
     }
   }
 
-  private async _summarizeHistory(
-    agent: Agent,
-    task: Task,
-    oldSummary: string,
-    turnsToSummarize: string[],
-  ): Promise<string> {
-    const summarizationPrompt = `
-      Твоя задача - обновить саммари диалога.
-      ПРЕДЫДУЩЕЕ САММАРИ:
-      ${oldSummary}
-
-      ПОСЛЕДНИЕ ДЕЙСТВИЯ (которые нужно добавить в саммари):
-      ${turnsToSummarize.join('\n\n')}
-
-      ОБНОВИ САММАРИ: Перепиши его, включив новые факты из последних действий. Сохрани только ключевые выводы и состояние. Будь краток. Верни только текст нового саммари.
-      `;
-
-    // Создаем временную "личность" агента для задачи суммаризации
-    const summarizerAgent: Agent = {
-      ...agent,
-      llmConfig: { provider: 'groq', model: 'llama3-8b-8192' },
-    };
-
-    // Мы ожидаем текстовый ответ, а не JSON
-    const response = await this.llmMultiplexer.generate(
-      summarizerAgent,
-      summarizationPrompt,
-    );
-
-    // LLM может вернуть саммари в поле `thought`. Это наша лучшая эвристика.
-    return response.thought;
-  }
-
   private buildIterativePrompt(
     agent: Agent,
     task: Task,
     history: string,
   ): string {
     return `
-    SYSTEM PROMPT: Ты - AI-агент. Твой ответ - ВСЕГДА ТОЛЬКО JSON.
-    ФОРМАТ: {"thought": "моя мысль", "command": "команда", "args": ["аргумент"], "finished": false}
+    SYSTEM PROMPT: Ты - автономный AI-агент-разработчик.
+    ТВОЯ РОЛЬ: ${agent.role}.
+    ПРАВИЛА:
+    1. Ты работаешь в shell в директории /app, которая является Git-репозиторием.
+    2. Твой ответ ВСЕГДА должен быть ТОЛЬКО JSON-объектом.
+    3. Финальным шагом твоей работы **обязательно** должен быть git push.
+    4. Когда задача полностью выполнена (включая git push), "finished" должно быть true.
+
+    СТРОГИЙ ФОРМАТ ОТВЕТА:
+    {"thought": "Моя мысль.", "command": "команда", "args": ["аргумент"], "finished": false}
+    
     ГЛОБАЛЬНАЯ ЗАДАЧА: "${task.title}: ${task.description}"
     
-    ИСТОРИЯ И КОНТЕКСТ:
+    ИСТОРИЯ ДЕЙСТВИЙ И КОНТЕКСТ:
     ${history}
 
     ТВОЙ СЛЕДУЮЩИЙ ШАГ В ФОРМАТЕ JSON:`;
@@ -314,6 +290,7 @@ export class OrchestrationService {
     command: string[],
     agentId: string,
     agentName: string,
+    workingDir: string | null = null,
   ): Promise<string> {
     this._logToProject(
       projectId,
@@ -324,6 +301,7 @@ export class OrchestrationService {
     const result = await this.dockerManager.executeCommand(
       containerId,
       command,
+      workingDir,
     );
     this._logToProject(
       projectId,

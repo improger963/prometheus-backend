@@ -8,6 +8,7 @@ import { LlmMultiplexerService } from './llm-multiplexer.service';
 import { Task } from '../tasks/entities/task.entity';
 import { Project } from '../projects/entities/project.entity';
 import { Agent } from '../agents/entities/agent.entity';
+import { AgentMemoryService } from './agent-memory.service';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { Agent } from '../agents/entities/agent.entity';
     EventsGateway,
     OrchestrationService,
     LlmMultiplexerService,
+    AgentMemoryService,
   ],
   exports: [OrchestrationService],
 })

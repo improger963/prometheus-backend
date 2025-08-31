@@ -4,10 +4,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import Docker, { Container } from 'dockerode';
+import Docker, { Container, ExecCreateOptions } from 'dockerode';
 import { Readable } from 'stream';
 
-// Вводим кастомные типы ошибок для четкой идентификации
 export class DockerConnectionError extends InternalServerErrorException {
   constructor() {
     super(
@@ -64,22 +63,24 @@ export class DockerManagerService {
   async executeCommand(
     containerId: string,
     command: string[],
+    workingDir: string | null = null,
   ): Promise<string> {
     const container = await this.getContainer(containerId);
     try {
-      const exec = await container.exec({
+      const execOptions: ExecCreateOptions = {
         Cmd: command,
         AttachStdout: true,
         AttachStderr: true,
-      });
+      };
+
+      if (workingDir) {
+        execOptions.WorkingDir = workingDir;
+      }
+
+      const exec = await container.exec(execOptions);
       const stream = await exec.start({ Tty: false, hijack: true });
       return this.streamToString(stream);
     } catch (error) {
-      this.logger.error(
-        `Ошибка выполнения команды в контейнере ${containerId}:`,
-        error,
-      );
-      // Мы пробрасываем ошибку дальше, чтобы Оркестратор мог передать ее LLM
       throw new Error(
         `Команда "${command.join(' ')}" завершилась с ошибкой: ${error.message}`,
       );
@@ -92,7 +93,6 @@ export class DockerManagerService {
       await container.stop();
       await container.remove({ force: true });
     } catch (error) {
-      // Игнорируем ошибки, если контейнер уже остановлен или удален, но логируем
       if (error.statusCode === 404 || error.statusCode === 304) {
         this.logger.warn(
           `Попытка остановить/удалить уже несуществующий контейнер ${containerId}.`,
@@ -137,16 +137,12 @@ export class DockerManagerService {
 
   private streamToString(stream: Readable): Promise<string> {
     return new Promise((resolve, reject) => {
-      let data = '';
+      let output = '';
       stream.on('data', (chunk) => {
-        data += chunk.toString();
+        output += chunk.toString('utf8');
       });
-      stream.on('end', () => {
-        resolve(data);
-      });
-      stream.on('error', (err) => {
-        reject(err);
-      });
+      stream.on('end', () => resolve(output));
+      stream.on('error', (err) => reject(err));
     });
   }
 }
