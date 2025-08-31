@@ -1,14 +1,9 @@
-import {
-  Injectable,
-  Logger,
-  InternalServerErrorException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import Groq from 'groq-sdk';
-import { Agent } from 'src/agents/entities/agent.entity'; // <-- ИЗМЕНЕНИЕ: Импортируем Entity
+import { Agent } from 'src/agents/entities/agent.entity';
 
 export interface LlmResponse {
   thought: string;
@@ -36,94 +31,111 @@ export class LlmMultiplexerService {
     });
   }
 
-  async generate(agent: Agent, prompt: string): Promise<LlmResponse> {
+  async generate(
+    agent: Agent,
+    prompt: string,
+    retryCount = 3,
+  ): Promise<LlmResponse> {
+    if (retryCount <= 0) {
+      throw new Error(
+        'Превышен лимит попыток получить корректный ответ от LLM.',
+      );
+    }
+
     const { provider, model } = agent.llmConfig;
     this.logger.log(
-      `Маршрутизация запроса к провайдеру: ${provider}, модель: ${model}`,
+      `Маршрутизация запроса к провайдеру: ${provider}, модель: ${model} (Попытка #${4 - retryCount})`,
     );
 
-    switch (provider.toLowerCase()) {
-      case 'google':
-        return this._callGoogle(prompt, model);
-      case 'openai':
-        return this._callOpenAI(prompt, model);
-      case 'groq':
-        return this._callGroq(prompt, model);
-      default:
-        throw new BadRequestException(
-          `Неподдерживаемый LLM провайдер: ${provider}`,
-        );
+    try {
+      let responseText: string;
+      switch (provider.toLowerCase()) {
+        case 'google':
+          responseText = await this._callGoogle(prompt, model);
+          break;
+        case 'openai':
+          responseText = await this._callOpenAI(prompt, model);
+          break;
+        case 'groq':
+          responseText = await this._callGroq(prompt, model);
+          break;
+        default:
+          throw new BadRequestException(
+            `Неподдерживаемый LLM провайдер: ${provider}`,
+          );
+      }
+      this.logger.log(`[${provider}] Сырой ответ: ${responseText}`);
+      return this.parseAndHealResponse(responseText);
+    } catch (error) {
+      // --- УЛУЧШЕННАЯ ОБРАТНАЯ СВЯЗЬ ---
+      this.logger.warn(
+        `Ошибка при обработке ответа LLM: ${error.message}. Запускаю повторную попытку...`,
+      );
+      // Логируем полный объект ошибки для глубокой отладки
+      this.logger.debug('Полный объект ошибки LLM:', error);
+
+      const fixPrompt = `${prompt}\n\nТвой предыдущий ответ вызвал ошибку: "${error.message}". Напоминаю, твой ответ должен быть СТРОГО в формате JSON: {"thought": "...", "command": "...", "args": [...], "finished": boolean}.`;
+      return this.generate(agent, fixPrompt, retryCount - 1);
     }
   }
 
-  private async _callGoogle(
-    prompt: string,
-    model: string,
-  ): Promise<LlmResponse> {
+  private async _callGoogle(prompt: string, model: string): Promise<string> {
     const gemini = this.googleAI.getGenerativeModel({ model });
     const result = await gemini.generateContent(prompt);
-    const responseText = result.response.text();
-    this.logger.log(`[Google] Сырой ответ: ${responseText}`);
-    return this.parseAndValidateResponse(responseText);
+    return result.response.text();
   }
 
-  private async _callOpenAI(
-    prompt: string,
-    model: string,
-  ): Promise<LlmResponse> {
+  private async _callOpenAI(prompt: string, model: string): Promise<string> {
     const completion = await this.openAI.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
       model,
+      response_format: { type: 'json_object' }, // Просим OpenAI принудительно вернуть JSON
     });
     const responseText = completion.choices[0].message.content;
-    this.logger.log(`[OpenAI] Сырой ответ: ${responseText}`);
-
-    // --- ИСПРАВЛЕНИЕ ---
-    if (!responseText) {
-      throw new InternalServerErrorException(
-        'OpenAI API вернул пустой ответ (null content).',
-      );
-    }
-    // -----------------
-
-    return this.parseAndValidateResponse(responseText);
+    if (!responseText) throw new Error('OpenAI API вернул пустой ответ.');
+    return responseText;
   }
 
-  private async _callGroq(prompt: string, model: string): Promise<LlmResponse> {
+  private async _callGroq(prompt: string, model: string): Promise<string> {
     const completion = await this.groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
       model,
+      response_format: { type: 'json_object' }, // Просим Groq принудительно вернуть JSON
     });
     const responseText = completion.choices[0].message.content;
-    this.logger.log(`[Groq] Сырой ответ: ${responseText}`);
-
-    // --- ИСПРАВЛЕНИЕ ---
-    if (!responseText) {
-      throw new InternalServerErrorException(
-        'Groq API вернул пустой ответ (null content).',
-      );
-    }
-    // -----------------
-
-    return this.parseAndValidateResponse(responseText);
+    if (!responseText) throw new Error('Groq API вернул пустой ответ.');
+    return responseText;
   }
 
-  private parseAndValidateResponse(text: string): LlmResponse {
+  // --- ШАГ 1: "САМОИСЦЕЛЯЮЩИЙСЯ ПАРСЕР" ---
+  private parseAndHealResponse(text: string): LlmResponse {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch || !jsonMatch[0]) {
-      throw new SyntaxError('В ответе LLM не найден валидный JSON-объект.');
+      throw new Error('В ответе LLM не найден JSON-объект.');
     }
+
     const parsed = JSON.parse(jsonMatch[0]);
+
+    // "Исцеляем" ответ, подставляя безопасные значения по умолчанию
+    const healedResponse: LlmResponse = {
+      thought: parsed.thought || '',
+      command: parsed.command || '',
+      args: parsed.args || [],
+      finished: typeof parsed.finished === 'boolean' ? parsed.finished : false,
+    };
+
+    // Проверяем, что args - это массив строк
     if (
-      typeof parsed.thought !== 'string' ||
-      typeof parsed.command !== 'string' ||
-      !Array.isArray(parsed.args) ||
-      typeof parsed.finished !== 'boolean'
+      !Array.isArray(healedResponse.args) ||
+      !healedResponse.args.every((arg) => typeof arg === 'string')
     ) {
-      throw new SyntaxError(
-        'JSON-объект в ответе LLM не соответствует требуемому формату LlmResponse.',
+      this.logger.warn(
+        'Поле "args" в ответе LLM не является массивом строк. Преобразовано в пустой массив.',
       );
+      healedResponse.args = [];
     }
-    return parsed;
+
+    this.logger.log('"Исцеленный" и валидный ответ от LLM:', healedResponse);
+    return healedResponse;
   }
 }

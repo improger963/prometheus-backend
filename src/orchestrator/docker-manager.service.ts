@@ -1,106 +1,113 @@
 import {
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-// ИСПРАВЛЕННЫЙ ИМПОРТ:
 import Docker, { Container } from 'dockerode';
 import { Readable } from 'stream';
 
+// Вводим кастомные типы ошибок для четкой идентификации
+export class DockerConnectionError extends InternalServerErrorException {
+  constructor() {
+    super(
+      'Не удалось подключиться к Docker Daemon. Убедитесь, что Docker запущен.',
+    );
+  }
+}
+export class ImagePullError extends InternalServerErrorException {
+  constructor(imageName: string) {
+    super(`Не удалось загрузить Docker-образ: ${imageName}.`);
+  }
+}
+
 @Injectable()
 export class DockerManagerService {
+  private readonly logger = new Logger(DockerManagerService.name);
   private readonly docker: Docker;
 
   constructor() {
-    this.docker = new Docker();
+    try {
+      this.docker = new Docker();
+    } catch (error) {
+      this.logger.error('Критическая ошибка инициализации Dockerode:', error);
+      throw new DockerConnectionError();
+    }
   }
 
-  /**
-   * Создает и запускает новый Docker-контейнер из указанного образа.
-   * @param imageName - Имя образа, например, 'ubuntu:latest'.
-   * @returns ID созданного контейнера.
-   */
   async createAndStartContainer(imageName: string): Promise<string> {
     try {
       await this.pullImage(imageName);
-
       const container: Container = await this.docker.createContainer({
         Image: imageName,
         Tty: true,
         Cmd: ['/bin/bash'],
-        AttachStdin: true,
-        AttachStdout: true,
-        AttachStderr: true,
         OpenStdin: true,
       });
-
       await container.start();
       return container.id;
     } catch (error) {
-      console.error('Ошибка при создании контейнера:', error);
+      this.logger.error(
+        `Ошибка при создании контейнера из образа ${imageName}:`,
+        error,
+      );
       throw new InternalServerErrorException(
-        'Не удалось создать Docker-контейнер.',
+        `Ошибка Docker при создании контейнера: ${error.message}`,
       );
     }
   }
 
-  /**
-   * Выполняет команду внутри запущенного контейнера.
-   * @param containerId - ID контейнера.
-   * @param command - Массив строк команды, например, ['ls', '-la'].
-   * @returns Результат выполнения команды (stdout).
-   */
   async executeCommand(
     containerId: string,
     command: string[],
   ): Promise<string> {
     const container = await this.getContainer(containerId);
-
-    const exec = await container.exec({
-      Cmd: command,
-      AttachStdout: true,
-      AttachStderr: true,
-    });
-
-    const stream = await exec.start({ Tty: false, hijack: true });
-
-    // В dockerode v3+ стандартный demuxStream больше не требуется в том виде, как раньше.
-    // Простой сбор данных из потока работает для большинства случаев.
-    return new Promise((resolve, reject) => {
-      let output = '';
-      stream.on('data', (chunk) => (output += chunk.toString('utf8')));
-      stream.on('end', () => resolve(output));
-      stream.on('error', (err) => reject(err));
-    });
+    try {
+      const exec = await container.exec({
+        Cmd: command,
+        AttachStdout: true,
+        AttachStderr: true,
+      });
+      const stream = await exec.start({ Tty: false, hijack: true });
+      return this.streamToString(stream);
+    } catch (error) {
+      this.logger.error(
+        `Ошибка выполнения команды в контейнере ${containerId}:`,
+        error,
+      );
+      // Мы пробрасываем ошибку дальше, чтобы Оркестратор мог передать ее LLM
+      throw new Error(
+        `Команда "${command.join(' ')}" завершилась с ошибкой: ${error.message}`,
+      );
+    }
   }
 
-  /**
-   * Останавливает и удаляет контейнер.
-   * @param containerId - ID контейнера.
-   */
   async stopAndRemoveContainer(containerId: string): Promise<void> {
-    const container = await this.getContainer(containerId);
     try {
+      const container = await this.getContainer(containerId);
       await container.stop();
       await container.remove({ force: true });
     } catch (error) {
-      if (error.statusCode !== 304 && error.statusCode !== 404) {
-        throw new InternalServerErrorException(
-          `Не удалось остановить или удалить контейнер: ${error.message}`,
+      // Игнорируем ошибки, если контейнер уже остановлен или удален, но логируем
+      if (error.statusCode === 404 || error.statusCode === 304) {
+        this.logger.warn(
+          `Попытка остановить/удалить уже несуществующий контейнер ${containerId}.`,
         );
-      }
-      // Если контейнер уже был остановлен (304) или не найден (404), просто пытаемся удалить
-      if (error.statusCode !== 404) {
-        await container.remove({ force: true });
+      } else {
+        this.logger.error(
+          `Ошибка при очистке контейнера ${containerId}:`,
+          error,
+        );
+        throw new InternalServerErrorException(
+          `Ошибка Docker при очистке контейнера: ${error.message}`,
+        );
       }
     }
   }
 
-  // --- Вспомогательные приватные методы ---
-
   private async getContainer(containerId: string): Promise<Container> {
+    const container = this.docker.getContainer(containerId);
     try {
-      const container = this.docker.getContainer(containerId);
       await container.inspect();
       return container;
     } catch (error) {
@@ -109,17 +116,32 @@ export class DockerManagerService {
           `Контейнер с ID "${containerId}" не найден.`,
         );
       }
-      throw error;
+      throw new DockerConnectionError();
     }
   }
 
   private pullImage(imageName: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.docker.pull(imageName, (err: any, stream: any) => {
-        if (err) return reject(err);
+        if (err) return reject(new ImagePullError(imageName));
         this.docker.modem.followProgress(stream, (err) =>
-          err ? reject(err) : resolve(),
+          err ? reject(new ImagePullError(imageName)) : resolve(),
         );
+      });
+    });
+  }
+
+  private streamToString(stream: Readable): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let data = '';
+      stream.on('data', (chunk) => {
+        data += chunk.toString();
+      });
+      stream.on('end', () => {
+        resolve(data);
+      });
+      stream.on('error', (err) => {
+        reject(err);
       });
     });
   }

@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OnEvent } from '@nestjs/event-emitter';
-import { DockerManagerService } from './docker-manager.service';
+import {
+  DockerConnectionError,
+  DockerManagerService,
+  ImagePullError,
+} from './docker-manager.service';
 import { EventsGateway } from './events.gateway';
 import { Task, TaskStatus } from '../tasks/entities/task.entity';
 import { LlmMultiplexerService } from './llm-multiplexer.service';
@@ -32,7 +36,7 @@ export class OrchestrationService {
   async startTaskExecution(taskId: string): Promise<void> {
     const task = await this.tasksRepository.findOne({
       where: { id: taskId },
-      relations: ['project', 'assignee'], // Используем relations для подгрузки связанных сущностей
+      relations: ['project', 'assignee'],
     });
 
     if (!task || !task.project || !task.assignee) {
@@ -85,20 +89,18 @@ export class OrchestrationService {
 
       this._logToProject(
         projectId,
-        `[Docker]: Создаю среду...`,
-        agentId,
-        agentName,
-      );
-
-      this._logToProject(
-        projectId,
         `[Docker]: Создаю среду на базе образа "${project.baseDockerImage}"...`,
         agentId,
         agentName,
       );
-
       containerId = await this.dockerManager.createAndStartContainer(
         project.baseDockerImage,
+      );
+      this._logToProject(
+        projectId,
+        `[Docker]: Среда создана. ID: ${containerId.substring(0, 12)}`,
+        agentId,
+        agentName,
       );
 
       await this.executeAndLogCommand(
@@ -193,16 +195,16 @@ export class OrchestrationService {
         agentName,
       );
     } catch (error) {
-      this.logger.error(
-        `КРИТИЧЕСКАЯ ОШИБКА в задаче ${taskId}:`,
-        JSON.stringify(error, null, 2),
-      );
-      this._logToProject(
-        projectId,
-        `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`,
-        agentId,
-        agentName,
-      );
+      this.logger.error(`КРИТИЧЕСКАЯ ОШИБКА в задаче ${taskId}:`, error);
+
+      let userFriendlyMessage = `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`;
+      if (error instanceof DockerConnectionError) {
+        userFriendlyMessage = `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: Не удалось подключиться к Docker. Проверьте, запущен ли Docker Daemon.`;
+      } else if (error instanceof ImagePullError) {
+        userFriendlyMessage = `[Оркестратор]: КРИТИЧЕСКАЯ ОШИБКА: Не удалось загрузить необходимый Docker-образ. Проверьте интернет-соединение.`;
+      }
+
+      this._logToProject(projectId, userFriendlyMessage, agentId, agentName);
       await this.updateTaskStatus(
         taskId,
         projectId,
