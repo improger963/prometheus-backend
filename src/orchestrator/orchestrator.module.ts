@@ -3,7 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { DockerManagerService } from './docker-manager.service';
 import { EventsGateway } from './events.gateway';
 import { OrchestrationService } from './orchestration.service';
-import { LlmManagerService } from './llm-manager.service';
+import { LlmGatewayService } from './llm-gateway.service';
 
 @Module({
   imports: [AuthModule],
@@ -11,7 +11,7 @@ import { LlmManagerService } from './llm-manager.service';
     DockerManagerService,
     EventsGateway,
     OrchestrationService,
-    LlmManagerService,
+    LlmGatewayService,
   ],
   exports: [OrchestrationService],
 })
