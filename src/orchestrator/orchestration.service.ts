@@ -41,12 +41,12 @@ export class OrchestrationService {
 
     if (!task || !task.project || !task.assignee) {
       this.logger.error(
-        `Задача ${taskId} не найдена или не имеет полного набора данных.`,
+        `Задача ${taskId} не найдена или не имеет полного набора данных (проект/исполнитель).`,
       );
       if (task && task.project) {
         this._logToProject(
           task.project.id,
-          `[Оркестратор]: Ошибка! Задача или агент не найдены.`,
+          `[Оркестратор]: Ошибка! Задача или назначенный агент не найдены.`,
           'system',
           'System',
         );
@@ -87,11 +87,20 @@ export class OrchestrationService {
         agentName,
       );
 
+      const baseImage =
+        project.baseDockerImage || 'improger/prometheus-base:latest';
+      this._logToProject(
+        projectId,
+        `[Docker]: Создаю среду на базе образа "${baseImage}"...`,
+        agentId,
+        agentName,
+      );
+
       const envVars = project.gitAccessToken
         ? [`GIT_ACCESS_TOKEN=${project.gitAccessToken}`]
         : [];
       containerId = await this.dockerManager.createAndStartContainer(
-        project.baseDockerImage,
+        baseImage,
         envVars,
       );
       this._logToProject(
@@ -108,23 +117,7 @@ export class OrchestrationService {
         agentId,
         agentName,
       );
-      await this.executeAndLogCommand(
-        containerId,
-        projectId,
-        ['apt-get', 'update'],
-        agentId,
-        agentName,
-        null,
-      );
-      await this.executeAndLogCommand(
-        containerId,
-        projectId,
-        ['apt-get', 'install', '-y', 'git'],
-        agentId,
-        agentName,
-        null,
-      );
-
+      // Выполняем команды без указания workingDir (т.е. в '/')
       const repoUrl = new URL(project.gitRepositoryURL);
       if (project.gitAccessToken) {
         repoUrl.username = project.gitAccessToken;
@@ -162,9 +155,16 @@ export class OrchestrationService {
         null,
       );
 
+      this._logToProject(
+        projectId,
+        `[Git]: Настройка завершена.`,
+        agentId,
+        agentName,
+      );
+
       // --- ФАЗА 2: РАБОТА АГЕНТА (в '/app') ---
-      let history = `КОНТЕКСТ: Ты находишься в Git-репозитории в /app. Твой первый шаг?`;
-      let maxIterations = 15;
+      let history = `КОНТЕКСТ: Ты находишься в Git-репозитории в /app. Все необходимые инструменты (git, python, node, etc.) уже установлены. Твой первый шаг?`;
+      let maxIterations = 20;
 
       while (maxIterations > 0) {
         maxIterations--;
@@ -268,10 +268,12 @@ export class OrchestrationService {
     SYSTEM PROMPT: Ты - автономный AI-агент-разработчик.
     ТВОЯ РОЛЬ: ${agent.role}.
     ПРАВИЛА:
-    1. Ты работаешь в shell в директории /app, которая является Git-репозиторием.
-    2. Твой ответ ВСЕГДА должен быть ТОЛЬКО JSON-объектом.
-    3. Финальным шагом твоей работы **обязательно** должен быть git push.
-    4. Когда задача полностью выполнена (включая git push), "finished" должно быть true.
+    1. Твоя рабочая директория ВСЕГДА /app, которая является Git-репозиторием. Все команды выполняются из этой директории.
+    2. Тебе доступны сложные команды, например 'cd subdirectory && ls'. Состояние директории СОХРАНЯЕТСЯ внутри одной такой команды.
+    3. Все необходимые инструменты (git, python, node, npm, nano, vim, tree) УЖЕ УСТАНОВЛЕНЫ.
+    4. Твой ответ ВСЕГДА должен быть ТОЛЬКО JSON-объектом.
+    5. Финальным шагом твоей работы **обязательно** должен быть git push.
+    6. Когда задача полностью выполнена (включая git push), "finished" должно быть true.
 
     СТРОГИЙ ФОРМАТ ОТВЕТА:
     {"thought": "Моя мысль.", "command": "команда", "args": ["аргумент"], "finished": false}

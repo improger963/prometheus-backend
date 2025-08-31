@@ -67,8 +67,10 @@ export class DockerManagerService {
   ): Promise<string> {
     const container = await this.getContainer(containerId);
     try {
+      const fullCommand = ['sh', '-c', command.join(' ')];
+
       const execOptions: ExecCreateOptions = {
-        Cmd: command,
+        Cmd: fullCommand,
         AttachStdout: true,
         AttachStderr: true,
       };
