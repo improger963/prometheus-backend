@@ -3,26 +3,27 @@ import {
   ConflictException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-
-import { User, UserDocument } from './schemas/user.schema';
+import { User } from './entities/user.entity';
 import { SignUpDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectRepository(User)
+    private usersRepository: Repository<User>, // <-- Инжектируем Repository
     private jwtService: JwtService,
   ) {}
 
   async signUp(signUpDto: SignUpDto): Promise<{ token: string }> {
     const { email, password } = signUpDto;
-
-    const existingUser = await this.userModel.findOne({ email });
+    const existingUser = await this.usersRepository.findOne({
+      where: { email },
+    });
     if (existingUser) {
       throw new ConflictException('Пользователь с таким email уже существует');
     }
@@ -30,19 +31,20 @@ export class AuthService {
     const salt = await bcrypt.genSalt();
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const user = await this.userModel.create({
+    const user = this.usersRepository.create({
       email,
       password: hashedPassword,
     });
 
-    const token = this.jwtService.sign({ id: user._id, email: user.email });
+    await this.usersRepository.save(user);
+
+    const token = this.jwtService.sign({ id: user.id, email: user.email });
     return { token };
   }
 
   async login(loginDto: LoginDto): Promise<{ token: string }> {
     const { email, password } = loginDto;
-
-    const user = await this.userModel.findOne({ email });
+    const user = await this.usersRepository.findOne({ where: { email } });
     if (!user) {
       throw new UnauthorizedException('Неверный email или пароль');
     }
@@ -52,7 +54,7 @@ export class AuthService {
       throw new UnauthorizedException('Неверный email или пароль');
     }
 
-    const token = this.jwtService.sign({ id: user._id, email: user.email });
+    const token = this.jwtService.sign({ id: user.id, email: user.email });
     return { token };
   }
 }

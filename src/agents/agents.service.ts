@@ -1,67 +1,64 @@
-import {
-  Injectable,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Agent, AgentDocument } from './schemas/agent.schema';
-import { UserDocument } from '../auth/schemas/user.schema';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Agent } from './entities/agent.entity';
+import { User } from '../auth/entities/user.entity';
 import { CreateAgentDto } from './dto/create-agent.dto';
-import { Project, ProjectDocument } from '../projects/schemas/project.schema';
+import { Project } from '../projects/entities/project.entity';
 
 @Injectable()
 export class AgentsService {
   constructor(
-    @InjectModel(Agent.name) private agentModel: Model<AgentDocument>,
-    // Нам нужна модель Project, чтобы проверять права доступа
-    @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
+    @InjectRepository(Agent)
+    private agentsRepository: Repository<Agent>,
+    @InjectRepository(Project)
+    private projectsRepository: Repository<Project>,
   ) {}
 
-  // Вспомогательная функция для проверки владения проектом
-  private async _verifyProjectOwnership(
+  // Вспомогательная функция для проверки, что проект принадлежит пользователю
+  private async _getProjectIfOwned(
     projectId: string,
-    user: UserDocument,
-  ): Promise<void> {
-    const project = await this.projectModel.findOne({
-      _id: projectId,
-      user: user._id,
+    user: User,
+  ): Promise<Project> {
+    const project = await this.projectsRepository.findOne({
+      where: { id: projectId, user: { id: user.id } },
     });
     if (!project) {
-      // Бросаем ошибку, если проект не найден или не принадлежит пользователю
       throw new NotFoundException(
         `Проект с ID "${projectId}" не найден или у вас нет к нему доступа.`,
       );
     }
+    return project;
   }
 
   async create(
     projectId: string,
     createAgentDto: CreateAgentDto,
-    user: UserDocument,
+    user: User,
   ): Promise<Agent> {
-    await this._verifyProjectOwnership(projectId, user);
-    const newAgent = new this.agentModel({
+    const project = await this._getProjectIfOwned(projectId, user);
+    const newAgent = this.agentsRepository.create({
       ...createAgentDto,
-      project: projectId, // Привязываем агента к проекту
+      project: project, // <-- Привязываем агента к найденной сущности проекта
     });
-    return newAgent.save();
+    return this.agentsRepository.save(newAgent);
   }
 
-  async findAll(projectId: string, user: UserDocument): Promise<Agent[]> {
-    await this._verifyProjectOwnership(projectId, user);
-    return this.agentModel.find({ project: projectId }).exec();
+  async findAll(projectId: string, user: User): Promise<Agent[]> {
+    await this._getProjectIfOwned(projectId, user);
+    return this.agentsRepository.find({
+      where: { project: { id: projectId } },
+    });
   }
 
   async findOne(
     projectId: string,
     agentId: string,
-    user: UserDocument,
+    user: User,
   ): Promise<Agent> {
-    await this._verifyProjectOwnership(projectId, user);
-    const agent = await this.agentModel.findOne({
-      _id: agentId,
-      project: projectId,
+    await this._getProjectIfOwned(projectId, user);
+    const agent = await this.agentsRepository.findOne({
+      where: { id: agentId, project: { id: projectId } },
     });
     if (!agent) {
       throw new NotFoundException(
@@ -75,37 +72,20 @@ export class AgentsService {
     projectId: string,
     agentId: string,
     updateAgentDto: Partial<CreateAgentDto>,
-    user: UserDocument,
+    user: User,
   ): Promise<Agent> {
-    await this._verifyProjectOwnership(projectId, user);
-    const agent = await this.agentModel.findOneAndUpdate(
-      { _id: agentId, project: projectId },
-      updateAgentDto,
-      { new: true },
-    );
-    if (!agent) {
-      throw new NotFoundException(
-        `Агент с ID "${agentId}" в проекте "${projectId}" не найден.`,
-      );
-    }
-    return agent;
+    const agent = await this.findOne(projectId, agentId, user); // Проверка прав доступа
+    Object.assign(agent, updateAgentDto);
+    return this.agentsRepository.save(agent);
   }
 
   async remove(
     projectId: string,
     agentId: string,
-    user: UserDocument,
+    user: User,
   ): Promise<{ deleted: boolean; id: string }> {
-    await this._verifyProjectOwnership(projectId, user);
-    const result = await this.agentModel.deleteOne({
-      _id: agentId,
-      project: projectId,
-    });
-    if (result.deletedCount === 0) {
-      throw new NotFoundException(
-        `Агент с ID "${agentId}" в проекте "${projectId}" не найден.`,
-      );
-    }
+    const agent = await this.findOne(projectId, agentId, user); // Проверка прав доступа
+    await this.agentsRepository.remove(agent);
     return { deleted: true, id: agentId };
   }
 }

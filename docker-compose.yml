@@ -1,0 +1,28 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    container_name: prometheus_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: prometheus_user
+      POSTGRES_PASSWORD: prometheus_password
+      POSTGRES_DB: prometheus_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # --- НОВЫЙ СЕРВИС АДМИН-ПАНЕЛИ ---
+  adminer:
+    image: adminer
+    container_name: prometheus_adminer
+    restart: always
+    ports:
+      - '8080:8080'
+    depends_on:
+      - postgres
+  # ------------------------------------
+
+volumes:
+  postgres_data:

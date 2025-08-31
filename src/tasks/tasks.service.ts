@@ -1,93 +1,84 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Task, TaskDocument } from './schemas/task.schema';
-import { UserDocument } from '../auth/schemas/user.schema';
+import { Task } from './entities/task.entity';
+import { User } from '../auth/entities/user.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
-import { Project, ProjectDocument } from '../projects/schemas/project.schema';
+import { Project } from '../projects/entities/project.entity';
+import { DeepPartial } from 'typeorm'; // Импортируем для ясности
 
 @Injectable()
 export class TasksService {
-  private readonly logger = new Logger(TasksService.name);
-
   constructor(
-    @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
-    @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
+    @InjectRepository(Task)
+    private tasksRepository: Repository<Task>,
+    @InjectRepository(Project)
+    private projectsRepository: Repository<Project>,
     private eventEmitter: EventEmitter2,
   ) {}
 
-  private async _verifyProjectOwnership(
+  private async _getProjectIfOwned(
     projectId: string,
-    user: UserDocument,
-  ): Promise<void> {
-    const project = await this.projectModel.findOne({
-      _id: projectId,
-      user: user._id,
+    user: User,
+  ): Promise<Project> {
+    const project = await this.projectsRepository.findOne({
+      where: { id: projectId, user: { id: user.id } },
     });
     if (!project) {
-      throw new NotFoundException(
-        `Проект с ID "${projectId}" не найден или у вас нет к нему доступа.`,
-      );
+      throw new NotFoundException(`Проект с ID "${projectId}" не найден.`);
     }
+    return project;
   }
 
   async create(
     projectId: string,
     createTaskDto: CreateTaskDto,
-    user: UserDocument,
+    user: User,
   ): Promise<Task> {
-    await this._verifyProjectOwnership(projectId, user);
-    const { title, description, agentId } = createTaskDto;
+    const project = await this._getProjectIfOwned(projectId, user);
 
-    const newTask = new this.taskModel({
-      title,
-      description,
-      assignee: agentId,
-      project: projectId,
-    });
+    // --- ИСПРАВЛЕНИЕ ---
+    // Создаем базовый объект для новой задачи
+    const taskPayload: DeepPartial<Task> = {
+      title: createTaskDto.title,
+      description: createTaskDto.description,
+      project: project,
+    };
 
-    await newTask.save();
-    this.logger.log(`Задача ${newTask._id} успешно сохранена в БД.`);
-    this.logger.log(
-      `Задача сохранена в БД. Документ: ${JSON.stringify(newTask, null, 2)}`,
-    );
+    // Условно добавляем связь с агентом, только если agentId предоставлен
+    if (createTaskDto.agentId) {
+      taskPayload.assignee = { id: createTaskDto.agentId };
+    }
 
-    // Генерируем событие
+    const newTask = this.tasksRepository.create(taskPayload);
+    // -----------------
+
+    await this.tasksRepository.save(newTask);
+
     this.eventEmitter.emit('task.created', {
-      taskId: newTask._id.toString(),
-      user,
+      taskId: newTask.id,
     });
-    this.logger.log(
-      `Событие 'task.created' для задачи ${newTask._id} сгенерировано.`,
-    );
-
-    this.logger.log(
-      `Событие 'task.created' сгенерировано для taskId: ${newTask._id.toString()}`,
-    );
 
     return newTask;
   }
 
-  async findAll(projectId: string, user: UserDocument): Promise<Task[]> {
-    await this._verifyProjectOwnership(projectId, user);
-    return this.taskModel.find({ project: projectId }).exec();
+  async findAll(projectId: string, user: User): Promise<Task[]> {
+    await this._getProjectIfOwned(projectId, user);
+    return this.tasksRepository.find({
+      where: { project: { id: projectId } },
+      relations: ['assignee'],
+    });
   }
 
-  async findOne(
-    projectId: string,
-    taskId: string,
-    user: UserDocument,
-  ): Promise<Task> {
-    await this._verifyProjectOwnership(projectId, user);
-    const task = await this.taskModel.findOne({
-      _id: taskId,
-      project: projectId,
+  async findOne(projectId: string, taskId: string, user: User): Promise<Task> {
+    await this._getProjectIfOwned(projectId, user);
+    const task = await this.tasksRepository.findOne({
+      where: { id: taskId, project: { id: projectId } },
+      relations: ['assignee'],
     });
     if (!task) {
-      throw new NotFoundException(
-        `Задача с ID "${taskId}" в проекте "${projectId}" не найдена.`,
-      );
+      throw new NotFoundException(`Задача с ID "${taskId}" не найдена.`);
     }
     return task;
   }
@@ -96,37 +87,20 @@ export class TasksService {
     projectId: string,
     taskId: string,
     updateTaskDto: Partial<CreateTaskDto>,
-    user: UserDocument,
+    user: User,
   ): Promise<Task> {
-    await this._verifyProjectOwnership(projectId, user);
-    const task = await this.taskModel.findOneAndUpdate(
-      { _id: taskId, project: projectId },
-      updateTaskDto,
-      { new: true },
-    );
-    if (!task) {
-      throw new NotFoundException(
-        `Задача с ID "${taskId}" в проекте "${projectId}" не найдена.`,
-      );
-    }
-    return task;
+    const task = await this.findOne(projectId, taskId, user);
+    Object.assign(task, updateTaskDto);
+    return this.tasksRepository.save(task);
   }
 
   async remove(
     projectId: string,
     taskId: string,
-    user: UserDocument,
+    user: User,
   ): Promise<{ deleted: boolean; id: string }> {
-    await this._verifyProjectOwnership(projectId, user);
-    const result = await this.taskModel.deleteOne({
-      _id: taskId,
-      project: projectId,
-    });
-    if (result.deletedCount === 0) {
-      throw new NotFoundException(
-        `Задача с ID "${taskId}" в проекте "${projectId}" не найдена.`,
-      );
-    }
+    const task = await this.findOne(projectId, taskId, user);
+    await this.tasksRepository.remove(task);
     return { deleted: true, id: taskId };
   }
 }

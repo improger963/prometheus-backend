@@ -1,15 +1,37 @@
-import { IsNotEmpty, IsObject, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsObject,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+
+class LlmConfigDto {
+  @IsEnum(['google', 'openai', 'groq'])
+  @IsNotEmpty()
+  provider: 'google' | 'openai' | 'groq';
+
+  @IsString()
+  @IsNotEmpty()
+  model: string;
+}
 
 export class CreateAgentDto {
   @IsString()
-  @IsNotEmpty({ message: 'Имя агента не может быть пустым.' })
+  @IsNotEmpty()
   name: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'Роль агента не может быть пустой.' })
+  @IsNotEmpty()
   role: string;
 
-  @IsObject({ message: 'Матрица личности должна быть объектом.' })
-  @IsNotEmpty({ message: 'Матрица личности не может быть пустой.' })
+  @IsObject()
+  @IsNotEmpty()
   personalityMatrix: Record<string, any>;
+
+  @ValidateNested()
+  @Type(() => LlmConfigDto)
+  @IsObject()
+  llmConfig: LlmConfigDto;
 }

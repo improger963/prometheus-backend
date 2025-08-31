@@ -1,4 +1,4 @@
-import { IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateTaskDto {
   @IsString()
@@ -9,9 +9,9 @@ export class CreateTaskDto {
   @IsNotEmpty()
   description: string;
 
-  // Поле для назначения агента-исполнителя
-  // ИМЯ ПРИВЕДЕНО В СООТВЕТСТВИЕ С СЕРВИСОМ
-  @IsMongoId()
+  // --- ИЗМЕНЕНИЕ ---
+  @IsUUID() // Используем валидатор для UUID вместо MongoId
   @IsOptional()
   agentId?: string;
+  // -----------------
 }

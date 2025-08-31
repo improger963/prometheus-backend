@@ -8,11 +8,12 @@ import {
   Delete,
   UseGuards,
   Req,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
-import { UserDocument } from '../auth/schemas/user.schema';
+import { User } from '../auth/entities/user.entity'; // <-- Обновляем тип
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('projects/:projectId/agents')
@@ -21,36 +22,36 @@ export class AgentsController {
 
   @Post()
   create(
-    @Param('projectId') projectId: string,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
     @Body() createAgentDto: CreateAgentDto,
-    @Req() req: { user: UserDocument },
+    @Req() req: { user: User },
   ) {
     return this.agentsService.create(projectId, createAgentDto, req.user);
   }
 
   @Get()
   findAll(
-    @Param('projectId') projectId: string,
-    @Req() req: { user: UserDocument },
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Req() req: { user: User },
   ) {
     return this.agentsService.findAll(projectId, req.user);
   }
 
   @Get(':agentId')
   findOne(
-    @Param('projectId') projectId: string,
-    @Param('agentId') agentId: string,
-    @Req() req: { user: UserDocument },
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('agentId', ParseUUIDPipe) agentId: string,
+    @Req() req: { user: User },
   ) {
     return this.agentsService.findOne(projectId, agentId, req.user);
   }
 
   @Patch(':agentId')
   update(
-    @Param('projectId') projectId: string,
-    @Param('agentId') agentId: string,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('agentId', ParseUUIDPipe) agentId: string,
     @Body() updateAgentDto: Partial<CreateAgentDto>,
-    @Req() req: { user: UserDocument },
+    @Req() req: { user: User },
   ) {
     return this.agentsService.update(
       projectId,
@@ -62,9 +63,9 @@ export class AgentsController {
 
   @Delete(':agentId')
   remove(
-    @Param('projectId') projectId: string,
-    @Param('agentId') agentId: string,
-    @Req() req: { user: UserDocument },
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('agentId', ParseUUIDPipe) agentId: string,
+    @Req() req: { user: User },
   ) {
     return this.agentsService.remove(projectId, agentId, req.user);
   }

@@ -8,11 +8,12 @@ import {
   Delete,
   UseGuards,
   Req,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
-import { UserDocument } from '../auth/schemas/user.schema';
+import { User } from '../auth/entities/user.entity';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('projects/:projectId/tasks')
@@ -21,45 +22,45 @@ export class TasksController {
 
   @Post()
   create(
-    @Param('projectId') projectId: string,
-    @Body() createTaskDto: CreateTaskDto, // DTO уже обновлен
-    @Req() req: { user: UserDocument },
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Body() createTaskDto: CreateTaskDto,
+    @Req() req: { user: User },
   ) {
     return this.tasksService.create(projectId, createTaskDto, req.user);
   }
 
   @Get()
   findAll(
-    @Param('projectId') projectId: string,
-    @Req() req: { user: UserDocument },
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Req() req: { user: User },
   ) {
     return this.tasksService.findAll(projectId, req.user);
   }
 
   @Get(':taskId')
   findOne(
-    @Param('projectId') projectId: string,
-    @Param('taskId') taskId: string,
-    @Req() req: { user: UserDocument },
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Req() req: { user: User },
   ) {
     return this.tasksService.findOne(projectId, taskId, req.user);
   }
 
   @Patch(':taskId')
   update(
-    @Param('projectId') projectId: string,
-    @Param('taskId') taskId: string,
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
     @Body() updateTaskDto: Partial<CreateTaskDto>,
-    @Req() req: { user: UserDocument },
+    @Req() req: { user: User },
   ) {
     return this.tasksService.update(projectId, taskId, updateTaskDto, req.user);
   }
 
   @Delete(':taskId')
   remove(
-    @Param('projectId') projectId: string,
-    @Param('taskId') taskId: string,
-    @Req() req: { user: UserDocument },
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Req() req: { user: User },
   ) {
     return this.tasksService.remove(projectId, taskId, req.user);
   }

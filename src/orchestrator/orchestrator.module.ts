@@ -1,17 +1,24 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { DockerManagerService } from './docker-manager.service';
 import { EventsGateway } from './events.gateway';
 import { OrchestrationService } from './orchestration.service';
-import { LlmGatewayService } from './llm-gateway.service';
+import { LlmMultiplexerService } from './llm-multiplexer.service';
+import { Task } from '../tasks/entities/task.entity';
+import { Project } from '../projects/entities/project.entity';
+import { Agent } from '../agents/entities/agent.entity';
 
 @Module({
-  imports: [AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([Task, Project, Agent]), // <-- Регистрируем все нужные Entity
+    AuthModule,
+  ],
   providers: [
     DockerManagerService,
     EventsGateway,
     OrchestrationService,
-    LlmGatewayService,
+    LlmMultiplexerService,
   ],
   exports: [OrchestrationService],
 })

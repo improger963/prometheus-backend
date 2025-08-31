@@ -1,26 +1,28 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Project, ProjectDocument } from './schemas/project.schema';
-import { UserDocument } from '../auth/schemas/user.schema';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Project } from './entities/project.entity';
+import { User } from '../auth/entities/user.entity';
 import { CreateProjectDto } from './dto/create-project.dto';
 
 @Injectable()
 export class ProjectsService {
   constructor(
-    @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
+    @InjectRepository(Project)
+    private projectsRepository: Repository<Project>,
   ) {}
 
   // Найти все проекты, принадлежащие конкретному пользователю
-  async findAll(user: UserDocument): Promise<Project[]> {
-    return this.projectModel.find({ user: user._id }).exec();
+  async findAll(user: User): Promise<Project[]> {
+    return this.projectsRepository.find({
+      where: { user: { id: user.id } }, // <-- Поиск по ID связанной сущности
+    });
   }
 
   // Найти один проект по ID, убедившись, что он принадлежит пользователю
-  async findOne(id: string, user: UserDocument): Promise<Project> {
-    const project = await this.projectModel.findOne({
-      _id: id,
-      user: user._id,
+  async findOne(id: string, user: User): Promise<Project> {
+    const project = await this.projectsRepository.findOne({
+      where: { id, user: { id: user.id } },
     });
     if (!project) {
       throw new NotFoundException(`Проект с ID "${id}" не найден.`);
@@ -31,45 +33,36 @@ export class ProjectsService {
   // Создать новый проект для текущего пользователя
   async create(
     createProjectDto: CreateProjectDto,
-    user: UserDocument,
+    user: User,
   ): Promise<Project> {
-    const newProject = new this.projectModel({
+    const newProject = this.projectsRepository.create({
       ...createProjectDto,
-      user: user._id, // Привязываем проект к ID текущего пользователя
+      user: user, // <-- TypeORM достаточно умен, чтобы сохранить только ID
     });
-    return newProject.save();
+    return this.projectsRepository.save(newProject);
   }
 
   // Обновить проект, убедившись, что он принадлежит пользователю
   async update(
     id: string,
     updateProjectDto: Partial<CreateProjectDto>,
-    user: UserDocument,
+    user: User,
   ): Promise<Project> {
-    const project = await this.projectModel.findOneAndUpdate(
-      { _id: id, user: user._id }, // Условие поиска
-      updateProjectDto, // Данные для обновления
-      { new: true }, // Вернуть обновленный документ
-    );
+    // Сначала нужно найти проект, чтобы убедиться в правах доступа
+    const project = await this.findOne(id, user);
 
-    if (!project) {
-      throw new NotFoundException(`Проект с ID "${id}" не найден.`);
-    }
-    return project;
+    // Обновляем найденный объект и сохраняем
+    Object.assign(project, updateProjectDto);
+    return this.projectsRepository.save(project);
   }
 
   // Удалить проект, убедившись, что он принадлежит пользователю
   async remove(
     id: string,
-    user: UserDocument,
+    user: User,
   ): Promise<{ deleted: boolean; id: string }> {
-    const result = await this.projectModel.deleteOne({
-      _id: id,
-      user: user._id,
-    });
-    if (result.deletedCount === 0) {
-      throw new NotFoundException(`Проект с ID "${id}" не найден.`);
-    }
+    const project = await this.findOne(id, user); // Проверка прав доступа
+    await this.projectsRepository.remove(project);
     return { deleted: true, id };
   }
 }
