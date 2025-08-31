@@ -42,7 +42,7 @@ export class LlmMultiplexerService {
       `Маршрутизация запроса к провайдеру: ${provider}, модель: ${model}`,
     );
 
-    switch (provider) {
+    switch (provider.toLowerCase()) {
       case 'google':
         return this._callGoogle(prompt, model);
       case 'openai':

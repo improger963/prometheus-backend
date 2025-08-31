@@ -89,13 +89,16 @@ export class OrchestrationService {
         agentId,
         agentName,
       );
-      containerId =
-        await this.dockerManager.createAndStartContainer('ubuntu:latest');
+
       this._logToProject(
         projectId,
-        `[Docker]: Среда создана. ID: ${containerId.substring(0, 12)}`,
+        `[Docker]: Создаю среду на базе образа "${project.baseDockerImage}"...`,
         agentId,
         agentName,
+      );
+
+      containerId = await this.dockerManager.createAndStartContainer(
+        project.baseDockerImage,
       );
 
       await this.executeAndLogCommand(

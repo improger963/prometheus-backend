@@ -1,4 +1,3 @@
-
 import { Agent } from 'src/agents/entities/agent.entity';
 import { User } from 'src/auth/entities/user.entity';
 import { Task } from 'src/tasks/entities/task.entity';
@@ -23,8 +22,6 @@ export class Project {
   @Column()
   gitRepositoryURL: string;
 
-  @ManyToOne(() => User, (user) => user.projects, { onDelete: 'CASCADE' })
-  user: User;
 
   @OneToMany(() => Agent, (agent) => agent.project)
   agents: Agent[];
@@ -37,4 +34,11 @@ export class Project {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @Column({ default: 'ubuntu:latest' }) // По умолчанию - базовая ubuntu
+  baseDockerImage: string;
+  // -------------------
+
+  @ManyToOne(() => User, (user) => user.projects, { onDelete: 'CASCADE' })
+  user: User;
 }
