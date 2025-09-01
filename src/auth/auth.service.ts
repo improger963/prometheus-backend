@@ -25,7 +25,7 @@ export class AuthService {
       where: { email },
     });
     if (existingUser) {
-      throw new ConflictException('Пользователь с таким email уже существует');
+      throw new ConflictException('User with this email already exists');
     }
 
     const salt = await bcrypt.genSalt();
@@ -46,12 +46,12 @@ export class AuthService {
     const { email, password } = loginDto;
     const user = await this.usersRepository.findOne({ where: { email } });
     if (!user) {
-      throw new UnauthorizedException('Неверный email или пароль');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     const isPasswordMatched = await bcrypt.compare(password, user.password);
     if (!isPasswordMatched) {
-      throw new UnauthorizedException('Неверный email или пароль');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     const token = this.jwtService.sign({ id: user.id, email: user.email });

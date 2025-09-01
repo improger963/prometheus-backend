@@ -1,0 +1,23 @@
+{
+  "displayName": "Unit Tests",
+  "testMatch": ["<rootDir>/test/unit/**/*.spec.ts"],
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^src/(.*)$": "<rootDir>/src/$1"
+  },
+  "collectCoverageFrom": [
+    "src/**/*.(t|j)s",
+    "!src/**/*.spec.ts",
+    "!src/**/*.e2e-spec.ts",
+    "!src/main.ts"
+  ],
+  "coverageDirectory": "./coverage/unit",
+  "coverageReporters": ["text", "lcov", "html"],
+  "testTimeout": 10000,
+  "setupFilesAfterEnv": ["<rootDir>/test/setup-unit.ts"]
+}

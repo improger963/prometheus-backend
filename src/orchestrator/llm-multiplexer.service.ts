@@ -13,6 +13,20 @@ export interface LlmResponse {
   finished: boolean;
 }
 
+export interface LlmConfig {
+  provider: 'google' | 'openai' | 'groq' | 'mistral';
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export interface ProviderInfo {
+  name: string;
+  models: string[];
+  defaultModel: string;
+  maxTokens: number;
+}
+
 @Injectable()
 export class LlmMultiplexerService {
   private readonly logger = new Logger(LlmMultiplexerService.name);
@@ -20,6 +34,34 @@ export class LlmMultiplexerService {
   private openAI: OpenAI;
   private groq: Groq;
   private mistral: Mistral;
+
+  // Provider configurations
+  private readonly providers: Record<string, ProviderInfo> = {
+    google: {
+      name: 'Google Gemini',
+      models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
+      defaultModel: 'gemini-1.5-pro',
+      maxTokens: 1048576,
+    },
+    openai: {
+      name: 'OpenAI',
+      models: ['gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'gpt-4o'],
+      defaultModel: 'gpt-4-turbo',
+      maxTokens: 128000,
+    },
+    groq: {
+      name: 'Groq',
+      models: ['llama3-70b-8192', 'llama3-8b-8192', 'mixtral-8x7b-32768'],
+      defaultModel: 'llama3-70b-8192',
+      maxTokens: 32768,
+    },
+    mistral: {
+      name: 'Mistral AI',
+      models: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
+      defaultModel: 'mistral-large-latest',
+      maxTokens: 32768,
+    },
+  };
 
   constructor(private readonly configService: ConfigService) {
     this.googleAI = new GoogleGenerativeAI(
@@ -50,25 +92,27 @@ export class LlmMultiplexerService {
 
     const model = options?.modelOverride || agent.llmConfig.model;
     const provider = agent.llmConfig.provider;
+    const temperature = agent.llmConfig.temperature || 0.7;
+    const maxTokens = agent.llmConfig.maxTokens || this.providers[provider]?.maxTokens || 4096;
 
     this.logger.log(
-      `Маршрутизация: ${provider}, модель: ${model} (Попытка #${4 - retryCount})`,
+      `Маршрутизация: ${provider}, модель: ${model}, temp: ${temperature} (Попытка #${4 - retryCount})`,
     );
 
     try {
       let responseText: string;
       switch (provider.toLowerCase()) {
         case 'google':
-          responseText = await this._callGoogle(prompt, model);
+          responseText = await this._callGoogle(prompt, model, { temperature, maxTokens });
           break;
         case 'openai':
-          responseText = await this._callOpenAI(prompt, model);
+          responseText = await this._callOpenAI(prompt, model, { temperature, maxTokens });
           break;
         case 'groq':
-          responseText = await this._callGroq(prompt, model);
+          responseText = await this._callGroq(prompt, model, { temperature, maxTokens });
           break;
         case 'mistral':
-          responseText = await this._callMistral(prompt, model);
+          responseText = await this._callMistral(prompt, model, { temperature, maxTokens });
           break;
         default:
           throw new BadRequestException(
@@ -89,11 +133,17 @@ export class LlmMultiplexerService {
     }
   }
 
-  private async _callMistral(prompt: string, model: string): Promise<string> {
+  private async _callMistral(
+    prompt: string,
+    model: string,
+    options: { temperature: number; maxTokens: number },
+  ): Promise<string> {
     const response = await this.mistral.chat.complete({
       model: model,
       messages: [{ role: 'user', content: prompt }],
       responseFormat: { type: 'json_object' },
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
     });
 
     const responseText = response.choices[0].message.content;
@@ -107,28 +157,50 @@ export class LlmMultiplexerService {
     return responseText;
   }
 
-  private async _callGoogle(prompt: string, model: string): Promise<string> {
-    const gemini = this.googleAI.getGenerativeModel({ model });
+  private async _callGoogle(
+    prompt: string,
+    model: string,
+    options: { temperature: number; maxTokens: number },
+  ): Promise<string> {
+    const gemini = this.googleAI.getGenerativeModel({ 
+      model,
+      generationConfig: {
+        temperature: options.temperature,
+        maxOutputTokens: options.maxTokens,
+      },
+    });
     const result = await gemini.generateContent(prompt);
     return result.response.text();
   }
 
-  private async _callOpenAI(prompt: string, model: string): Promise<string> {
+  private async _callOpenAI(
+    prompt: string,
+    model: string,
+    options: { temperature: number; maxTokens: number },
+  ): Promise<string> {
     const completion = await this.openAI.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
       model,
       response_format: { type: 'json_object' },
+      temperature: options.temperature,
+      max_tokens: options.maxTokens,
     });
     const responseText = completion.choices[0].message.content;
     if (!responseText) throw new Error('OpenAI API вернул пустой ответ.');
     return responseText;
   }
 
-  private async _callGroq(prompt: string, model: string): Promise<string> {
+  private async _callGroq(
+    prompt: string,
+    model: string,
+    options: { temperature: number; maxTokens: number },
+  ): Promise<string> {
     const completion = await this.groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
       model,
       response_format: { type: 'json_object' },
+      temperature: options.temperature,
+      max_tokens: options.maxTokens,
     });
     const responseText = completion.choices[0].message.content;
     if (!responseText) throw new Error('Groq API вернул пустой ответ.');
@@ -158,5 +230,51 @@ export class LlmMultiplexerService {
     }
     this.logger.log('"Исцеленный" и валидный ответ от LLM:', healedResponse);
     return healedResponse;
+  }
+
+  // NEW: Provider management methods
+  async validateProviderCredentials(provider: string): Promise<boolean> {
+    try {
+      const testPrompt = 'Test connection. Respond with: {"status": "ok"}';
+      switch (provider.toLowerCase()) {
+        case 'google':
+          await this._callGoogle(testPrompt, 'gemini-pro', { temperature: 0.1, maxTokens: 100 });
+          return true;
+        case 'openai':
+          await this._callOpenAI(testPrompt, 'gpt-3.5-turbo', { temperature: 0.1, maxTokens: 100 });
+          return true;
+        case 'groq':
+          await this._callGroq(testPrompt, 'llama3-8b-8192', { temperature: 0.1, maxTokens: 100 });
+          return true;
+        case 'mistral':
+          await this._callMistral(testPrompt, 'mistral-small-latest', { temperature: 0.1, maxTokens: 100 });
+          return true;
+        default:
+          return false;
+      }
+    } catch (error) {
+      this.logger.warn(`Provider ${provider} validation failed:`, error.message);
+      return false;
+    }
+  }
+
+  async getProviderModels(provider: string): Promise<string[]> {
+    const providerInfo = this.providers[provider.toLowerCase()];
+    return providerInfo ? providerInfo.models : [];
+  }
+
+  getAvailableProviders(): ProviderInfo[] {
+    return Object.entries(this.providers).map(([key, info]) => ({
+      ...info,
+      name: key,
+    }));
+  }
+
+  getProviderInfo(provider: string): ProviderInfo | null {
+    return this.providers[provider.toLowerCase()] || null;
+  }
+
+  async routeRequest(agent: Agent, prompt: string): Promise<LlmResponse> {
+    return this.generate(agent, prompt);
   }
 }

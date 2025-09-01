@@ -1,28 +1,43 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import { MongooseModule } from '@nestjs/mongoose';
-import { disconnect, Types } from 'mongoose';
+import { AuthModule } from '../src/auth/auth.module';
+import { ProjectsModule } from '../src/projects/projects.module';
+import { AgentsModule } from '../src/agents/agents.module';
+import { testDatabaseConfig } from './test-database.config';
 
 describe('AgentsController (e2e)', () => {
   let app: INestApplication;
-  let mongod: MongoMemoryServer;
+  let dataSource: DataSource;
   let jwtToken: string;
   let projectId: string;
 
-  // Перед всеми тестами: запускаем приложение, регистрируем пользователя и создаем проект
+  // Setup application with PostgreSQL test database
   beforeAll(async () => {
-    mongod = await MongoMemoryServer.create();
-    const uri = mongod.getUri();
-
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [MongooseModule.forRoot(uri), AppModule],
+      imports: [
+        ConfigModule.forRoot({
+          isGlobal: true,
+          ignoreEnvFile: true,
+          load: [() => ({
+            JWT_SECRET: 'test-secret-key-for-testing',
+          })]
+        }),
+        TypeOrmModule.forRoot(testDatabaseConfig),
+        EventEmitterModule.forRoot(),
+        AuthModule,
+        ProjectsModule,
+        AgentsModule,
+      ],
     }).compile();
 
     app = moduleFixture.createNestApplication();
     app.useGlobalPipes(new ValidationPipe());
+    dataSource = moduleFixture.get<DataSource>(DataSource);
     await app.init();
 
     // Этап 1: Создаем пользователя
@@ -42,12 +57,13 @@ describe('AgentsController (e2e)', () => {
       .post('/projects')
       .auth(jwtToken, { type: 'bearer' })
       .send(projectDto);
-    projectId = projectResponse.body._id;
+    projectId = projectResponse.body.id;
   });
 
   afterAll(async () => {
-    await disconnect();
-    await mongod.stop();
+    if (dataSource && dataSource.isInitialized) {
+      await dataSource.destroy();
+    }
     await app.close();
   });
 
@@ -67,7 +83,7 @@ describe('AgentsController (e2e)', () => {
     });
 
     it('POST /.../agents - должен вернуть 404 (Not Found), если проект не принадлежит пользователю', () => {
-      const fakeProjectId = new Types.ObjectId().toHexString(); // Генерируем валидный, но несуществующий ID
+      const fakeProjectId = '550e8400-e29b-41d4-a716-446655440000'; // Valid UUID format
       return request(app.getHttpServer())
         .post(`/projects/${fakeProjectId}/agents`)
         .auth(jwtToken, { type: 'bearer' })
@@ -84,7 +100,7 @@ describe('AgentsController (e2e)', () => {
         .then((res) => {
           expect(res.body.name).toEqual(agentDto.name);
           expect(res.body.project).toEqual(projectId);
-          agentId = res.body._id; // Сохраняем ID для следующих тестов
+          agentId = res.body.id; // Save ID for subsequent tests
         });
     });
 
@@ -95,7 +111,7 @@ describe('AgentsController (e2e)', () => {
         .expect(200)
         .then((res) => {
           expect(res.body).toBeInstanceOf(Array);
-          expect(res.body[0]._id).toEqual(agentId);
+          expect(res.body[0].id).toEqual(agentId);
         });
     });
 
@@ -105,7 +121,7 @@ describe('AgentsController (e2e)', () => {
         .auth(jwtToken, { type: 'bearer' })
         .expect(200)
         .then((res) => {
-          expect(res.body._id).toEqual(agentId);
+          expect(res.body.id).toEqual(agentId);
         });
     });
 

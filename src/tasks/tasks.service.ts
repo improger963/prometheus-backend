@@ -26,7 +26,7 @@ export class TasksService {
       where: { id: projectId, user: { id: user.id } },
     });
     if (!project) {
-      throw new NotFoundException(`Проект с ID "${projectId}" не найден.`);
+      throw new NotFoundException(`Project with ID "${projectId}" not found.`);
     }
     return project;
   }
@@ -38,17 +38,17 @@ export class TasksService {
   ): Promise<Task> {
     const project = await this._getProjectIfOwned(projectId, user);
 
-    // --- ИСПРАВЛЕНИЕ ---
-    // Создаем базовый объект для новой задачи
+    // --- FIX ---
+    // Create a base object for the new task
     const taskPayload: DeepPartial<Task> = {
       title: createTaskDto.title,
       description: createTaskDto.description,
       project: project,
     };
 
-    // Условно добавляем связь с агентом, только если agentId предоставлен
+    // Conditionally add agent relationship only if agentId is provided
     if (createTaskDto.agentId) {
-      taskPayload.assignee = { id: createTaskDto.agentId };
+      taskPayload.assigneeIds = [createTaskDto.agentId];
     }
 
     const newTask = this.tasksRepository.create(taskPayload);
@@ -67,7 +67,6 @@ export class TasksService {
     await this._getProjectIfOwned(projectId, user);
     return this.tasksRepository.find({
       where: { project: { id: projectId } },
-      relations: ['assignee'],
     });
   }
 
@@ -75,10 +74,9 @@ export class TasksService {
     await this._getProjectIfOwned(projectId, user);
     const task = await this.tasksRepository.findOne({
       where: { id: taskId, project: { id: projectId } },
-      relations: ['assignee'],
     });
     if (!task) {
-      throw new NotFoundException(`Задача с ID "${taskId}" не найдена.`);
+      throw new NotFoundException(`Task with ID "${taskId}" not found.`);
     }
     return task;
   }
@@ -90,7 +88,21 @@ export class TasksService {
     user: User,
   ): Promise<Task> {
     const task = await this.findOne(projectId, taskId, user);
-    Object.assign(task, updateTaskDto);
+    
+    // Handle agentId separately if provided
+    if (updateTaskDto.agentId !== undefined) {
+      if (updateTaskDto.agentId) {
+        task.assigneeIds = [updateTaskDto.agentId];
+      } else {
+        task.assigneeIds = [];
+      }
+      // Remove agentId from the DTO since it's not a direct Task property
+      const { agentId, ...taskUpdates } = updateTaskDto;
+      Object.assign(task, taskUpdates);
+    } else {
+      Object.assign(task, updateTaskDto);
+    }
+    
     return this.tasksRepository.save(task);
   }
 
@@ -102,5 +114,23 @@ export class TasksService {
     const task = await this.findOne(projectId, taskId, user);
     await this.tasksRepository.remove(task);
     return { deleted: true, id: taskId };
+  }
+
+  async findTaskById(taskId: string, user: User): Promise<Task | null> {
+    const task = await this.tasksRepository.findOne({
+      where: { id: taskId },
+      relations: ['project'],
+    });
+
+    if (!task) {
+      return null;
+    }
+
+    // Verify that the task belongs to a project owned by the user
+    if (task.project.user.id !== user.id) {
+      return null;
+    }
+
+    return task;
   }
 }

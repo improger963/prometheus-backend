@@ -12,56 +12,56 @@ export class ProjectsService {
     private projectsRepository: Repository<Project>,
   ) {}
 
-  // Найти все проекты, принадлежащие конкретному пользователю
+  // Find all projects belonging to a specific user
   async findAll(user: User): Promise<Project[]> {
     return this.projectsRepository.find({
-      where: { user: { id: user.id } }, // <-- Поиск по ID связанной сущности
+      where: { user: { id: user.id } }, // <-- Search by related entity ID
     });
   }
 
-  // Найти один проект по ID, убедившись, что он принадлежит пользователю
+  // Find one project by ID, ensuring it belongs to the user
   async findOne(id: string, user: User): Promise<Project> {
     const project = await this.projectsRepository.findOne({
       where: { id, user: { id: user.id } },
     });
     if (!project) {
-      throw new NotFoundException(`Проект с ID "${id}" не найден.`);
+      throw new NotFoundException(`Project with ID "${id}" not found.`);
     }
     return project;
   }
 
-  // Создать новый проект для текущего пользователя
+  // Create a new project for the current user
   async create(
     createProjectDto: CreateProjectDto,
     user: User,
   ): Promise<Project> {
     const newProject = this.projectsRepository.create({
       ...createProjectDto,
-      user: user, // <-- TypeORM достаточно умен, чтобы сохранить только ID
+      user: user, // <-- TypeORM is smart enough to save only the ID
     });
     return this.projectsRepository.save(newProject);
   }
 
-  // Обновить проект, убедившись, что он принадлежит пользователю
+  // Update a project, ensuring it belongs to the user
   async update(
     id: string,
     updateProjectDto: Partial<CreateProjectDto>,
     user: User,
   ): Promise<Project> {
-    // Сначала нужно найти проект, чтобы убедиться в правах доступа
+    // First need to find the project to ensure access rights
     const project = await this.findOne(id, user);
 
-    // Обновляем найденный объект и сохраняем
+    // Update the found object and save
     Object.assign(project, updateProjectDto);
     return this.projectsRepository.save(project);
   }
 
-  // Удалить проект, убедившись, что он принадлежит пользователю
+  // Delete a project, ensuring it belongs to the user
   async remove(
     id: string,
     user: User,
   ): Promise<{ deleted: boolean; id: string }> {
-    const project = await this.findOne(id, user); // Проверка прав доступа
+    const project = await this.findOne(id, user); // Check access rights
     await this.projectsRepository.remove(project);
     return { deleted: true, id };
   }

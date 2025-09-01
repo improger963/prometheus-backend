@@ -4,88 +4,95 @@ import { Repository } from 'typeorm';
 import { Agent } from './entities/agent.entity';
 import { User } from '../auth/entities/user.entity';
 import { CreateAgentDto } from './dto/create-agent.dto';
-import { Project } from '../projects/entities/project.entity';
 
 @Injectable()
 export class AgentsService {
   constructor(
     @InjectRepository(Agent)
     private agentsRepository: Repository<Agent>,
-    @InjectRepository(Project)
-    private projectsRepository: Repository<Project>,
   ) {}
 
-  // Вспомогательная функция для проверки, что проект принадлежит пользователю
-  private async _getProjectIfOwned(
-    projectId: string,
-    user: User,
-  ): Promise<Project> {
-    const project = await this.projectsRepository.findOne({
-      where: { id: projectId, user: { id: user.id } },
-    });
-    if (!project) {
-      throw new NotFoundException(
-        `Проект с ID "${projectId}" не найден или у вас нет к нему доступа.`,
-      );
-    }
-    return project;
-  }
-
-  async create(
-    projectId: string,
+  // NEW: Global agent management methods
+  async createGlobalAgent(
+    userId: string,
     createAgentDto: CreateAgentDto,
-    user: User,
   ): Promise<Agent> {
-    const project = await this._getProjectIfOwned(projectId, user);
     const newAgent = this.agentsRepository.create({
       ...createAgentDto,
-      project: project, // <-- Привязываем агента к найденной сущности проекта
+      user: { id: userId },
+      rating: 0.0,
+      experience: 0,
     });
     return this.agentsRepository.save(newAgent);
   }
 
-  async findAll(projectId: string, user: User): Promise<Agent[]> {
-    await this._getProjectIfOwned(projectId, user);
+  async getUserAgents(userId: string): Promise<Agent[]> {
     return this.agentsRepository.find({
-      where: { project: { id: projectId } },
+      where: { user: { id: userId } },
+      order: { createdAt: 'DESC' },
     });
   }
 
-  async findOne(
-    projectId: string,
-    agentId: string,
-    user: User,
-  ): Promise<Agent> {
-    await this._getProjectIfOwned(projectId, user);
+  async getAgentById(agentId: string, userId: string): Promise<Agent> {
     const agent = await this.agentsRepository.findOne({
-      where: { id: agentId, project: { id: projectId } },
+      where: { id: agentId, user: { id: userId } },
     });
     if (!agent) {
       throw new NotFoundException(
-        `Агент с ID "${agentId}" в проекте "${projectId}" не найден.`,
+        `Agent with ID "${agentId}" not found or you don't have access to it.`,
       );
     }
     return agent;
   }
 
-  async update(
-    projectId: string,
+  async updateAgent(
     agentId: string,
+    userId: string,
     updateAgentDto: Partial<CreateAgentDto>,
-    user: User,
   ): Promise<Agent> {
-    const agent = await this.findOne(projectId, agentId, user); // Проверка прав доступа
+    const agent = await this.getAgentById(agentId, userId);
     Object.assign(agent, updateAgentDto);
     return this.agentsRepository.save(agent);
   }
 
-  async remove(
-    projectId: string,
+  async deleteAgent(
     agentId: string,
-    user: User,
+    userId: string,
   ): Promise<{ deleted: boolean; id: string }> {
-    const agent = await this.findOne(projectId, agentId, user); // Проверка прав доступа
+    const agent = await this.getAgentById(agentId, userId);
     await this.agentsRepository.remove(agent);
     return { deleted: true, id: agentId };
+  }
+
+  async updateAgentRating(agentId: string, rating: number): Promise<void> {
+    await this.agentsRepository.update(agentId, { rating });
+  }
+
+  async addExperience(agentId: string, xp: number): Promise<void> {
+    const agent = await this.agentsRepository.findOne({
+      where: { id: agentId },
+    });
+    if (agent) {
+      agent.experience += xp;
+      await this.agentsRepository.save(agent);
+    }
+  }
+
+  async getAgentLeaderboard(limit: number = 10): Promise<Agent[]> {
+    return this.agentsRepository.find({
+      order: { rating: 'DESC', experience: 'DESC' },
+      take: limit,
+    });
+  }
+
+  // Helper method for project team management
+  async validateAgentOwnership(
+    agentId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const agent = await this.agentsRepository.findOne({
+      where: { id: agentId, user: { id: userId } },
+    });
+    return !!agent;
   }
 }

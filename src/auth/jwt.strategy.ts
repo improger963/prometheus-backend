@@ -24,7 +24,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user = await this.usersRepository.findOne({ where: { id } });
     if (!user) {
       throw new UnauthorizedException(
-        'Необходимо войти в систему для доступа к этому ресурсу.',
+        'Login required to access this resource.',
       );
     }
     return user;

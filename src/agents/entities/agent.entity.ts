@@ -1,5 +1,4 @@
-import { Project } from 'src/projects/entities/project.entity';
-import { Task } from 'src/tasks/entities/task.entity';
+import { User } from 'src/auth/entities/user.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -7,36 +6,50 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
-  OneToMany,
+  JoinColumn,
+  Index,
 } from 'typeorm';
 
+export interface LLMConfig {
+  provider: 'google' | 'openai' | 'groq' | 'mistral';
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
 @Entity('agents')
+@Index(['userId'])
+@Index(['name', 'userId'])
 export class Agent {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ length: 255 })
   name: string;
 
-  @Column()
+  @Column({ length: 500 })
   role: string;
 
   @Column('jsonb')
   personalityMatrix: Record<string, any>;
 
   @Column('jsonb')
-  llmConfig: {
-    provider: 'google' | 'openai' | 'groq' | 'mistral';
-    model: string;
-  };
+  llmConfig: LLMConfig;
 
-  @ManyToOne(() => Project, (project) => project.agents, {
-    onDelete: 'CASCADE',
-  })
-  project: Project;
+  // Gamification fields
+  @Column('decimal', { precision: 3, scale: 2, default: 0.0 })
+  rating: number;
 
-  @OneToMany(() => Task, (task) => task.assignee)
-  tasks: Task[];
+  @Column('int', { default: 0 })
+  experience: number;
+
+  // User ownership with explicit foreign key
+  @Column('uuid')
+  userId: string;
+
+  @ManyToOne(() => User, (user) => user.agents, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userId' })
+  user: User;
 
   @CreateDateColumn()
   createdAt: Date;
